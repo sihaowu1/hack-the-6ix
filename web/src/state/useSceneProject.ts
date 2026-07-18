@@ -8,6 +8,8 @@ import {
   type RenderSettings,
 } from '@motionforge/shared';
 import * as api from '../api/client';
+import { deriveTimelineTotal, type TimelineClip } from '../timeline/timelineMath';
+import { useTimelinePlayback } from '../timeline/useTimelinePlayback';
 
 /**
  * All editor state in one hook.
@@ -106,6 +108,29 @@ export function useSceneProject() {
       return [];
     }
   }, [code]);
+
+  // Single shared playhead for the whole app: the Video Generation and
+  // Export screens both render a `Timeline` against this same clock and
+  // preview the same derived clip, so scrubbing/playing on one screen stays
+  // in lockstep on the other instead of each screen re-deriving its own.
+  const timelineClips = useMemo<TimelineClip[]>(
+    () => clips.map((c) => ({ id: c.id, label: c.label, start: c.start, duration: c.duration })),
+    [clips],
+  );
+  const timelineTotal = useMemo(() => deriveTimelineTotal(timelineClips), [timelineClips]);
+  const playback = useTimelinePlayback(timelineTotal);
+
+  // Which clip (and therefore which model's code) is under the playhead
+  // right now. Clips are assumed never to overlap — at most one model per
+  // timeline second — so the first match is the only match.
+  const activeClip = useMemo(
+    () => clips.find((c) => playback.currentTime >= c.start && playback.currentTime < c.start + c.duration),
+    [clips, playback.currentTime],
+  );
+  const previewModel = activeClip ? models.find((m) => m.id === activeClip.modelId) : undefined;
+  const previewCode = previewModel?.code;
+  const previewTime = activeClip ? playback.currentTime - activeClip.start : playback.currentTime;
+  const previewModelName = previewModel?.name ?? activeModel.name;
 
   useEffect(() => {
     api.getBlenderStatus().then(setBlenderStatus).catch(() => setBlenderStatus(null));
@@ -326,6 +351,12 @@ export function useSceneProject() {
     setActiveModel,
     clips,
     addClipAtSecond,
+    timelineClips,
+    timelineTotal,
+    playback,
+    previewCode,
+    previewTime,
+    previewModelName,
     generate,
     modify,
     exportCode,
