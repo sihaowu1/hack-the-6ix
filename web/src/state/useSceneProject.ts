@@ -12,6 +12,7 @@ import {
   type RenderSettings,
 } from '@motionforge/shared';
 import * as api from '../api/client';
+import { exportSceneAs, type ModelFormat } from '../viewport/exportScene';
 import { deriveTimelineTotal, MIN_CLIP_DURATION, type TimelineClip } from '../components/timeline/timelineMath';
 import { useTimelinePlayback } from '../components/timeline/useTimelinePlayback';
 
@@ -525,6 +526,15 @@ export function useSceneProject() {
     [run, code],
   );
 
+  const exportModel = useCallback(
+    (format: ModelFormat) =>
+      run(`Exporting ${format.toUpperCase()}…`, async () => {
+        await exportSceneAs(code, format);
+        setStatus({ kind: 'info', text: `Scene exported as scene.${format}.` });
+      }),
+    [run, code],
+  );
+
   const exportMp4 = useCallback(
     (settings: RenderSettings) =>
       run('Starting MP4 render…', async () => {
@@ -655,6 +665,7 @@ export function useSceneProject() {
     aspectRatio,
     setAspectRatio,
     exportCode,
+    exportModel,
     exportMp4,
     replaceFromRemote,
     resetToDefault,
