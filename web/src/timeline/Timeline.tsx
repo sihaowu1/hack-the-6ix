@@ -1,4 +1,5 @@
-import type { CSSProperties } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
 
 /**
  * One clip on the timeline. `start` and `duration` are in seconds.
@@ -19,57 +20,196 @@ export interface TimelineProps {
   clips: TimelineClip[];
   /**
    * Total timeline length in seconds. If omitted, it's derived from the
-   * furthest clip end so the layout always fills the track.
+   * furthest clip end (with a 10s floor so an empty timeline still has a
+   * ruler to scrub against) so the layout always fills the track.
    */
   totalDuration?: number;
 }
 
+/** Minimum length (seconds) shown for a timeline with no clips yet. */
+const EMPTY_TIMELINE_FLOOR = 10;
+
 /**
- * V1 timeline: read-only, single horizontal track.
- * Each clip is a positioned block whose left/width is a percentage of the
- * total timeline duration. No drag, no trim, no selection.
+ * V1 timeline: single horizontal track with transport controls (play/pause,
+ * step, skip-to-start/end) driving a playhead over it. The playhead runs on
+ * a real-time clock — 1 timeline-second per wall-clock second — and is
+ * independent of clip content, so scrubbing/playback works exactly the same
+ * on a timeline with no clips yet as on one with rendered clips.
  */
 export function Timeline({ clips, totalDuration }: TimelineProps) {
   // Derive the visible duration from the clips unless the parent overrides it.
   const derivedEnd = clips.reduce((max, c) => Math.max(max, c.start + c.duration), 0);
-  const total = Math.max(totalDuration ?? derivedEnd, 0.0001);
+  const total = Math.max(totalDuration ?? Math.max(derivedEnd, EMPTY_TIMELINE_FLOOR), 0.0001);
 
-  if (clips.length === 0) {
-    return (
-      <div style={styles.empty} aria-label="Timeline">
-        <span style={styles.emptyLabel}>No clips yet</span>
-        <span style={styles.emptyHint}>Rendered scenes will appear here as clips.</span>
-      </div>
-    );
+  const [currentTime, setCurrentTime] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const rafRef = useRef<number | null>(null);
+  const lastTsRef = useRef<number | null>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
+
+  // Clamp the playhead whenever the timeline shrinks (e.g. totalDuration prop changes).
+  useEffect(() => {
+    setCurrentTime((t) => Math.min(t, total));
+  }, [total]);
+
+  useEffect(() => {
+    if (!isPlaying) {
+      lastTsRef.current = null;
+      return;
+    }
+    const step = (ts: number) => {
+      const last = lastTsRef.current;
+      lastTsRef.current = ts;
+      if (last !== null) {
+        const deltaSeconds = (ts - last) / 1000;
+        setCurrentTime((t) => {
+          const next = t + deltaSeconds;
+          if (next >= total) {
+            setIsPlaying(false);
+            return total;
+          }
+          return next;
+        });
+      }
+      rafRef.current = requestAnimationFrame(step);
+    };
+    rafRef.current = requestAnimationFrame(step);
+    return () => {
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+    };
+  }, [isPlaying, total]);
+
+  function seekToClientX(clientX: number) {
+    const el = trackRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const fraction = clamp((clientX - rect.left) / rect.width, 0, 1);
+    setCurrentTime(fraction * total);
   }
+
+  function handleScrubberPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    event.currentTarget.setPointerCapture(event.pointerId);
+    seekToClientX(event.clientX);
+  }
+
+  function handleScrubberPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.buttons !== 1) return;
+    seekToClientX(event.clientX);
+  }
+
+  function togglePlay() {
+    setIsPlaying((playing) => {
+      if (!playing && currentTime >= total) setCurrentTime(0);
+      return !playing;
+    });
+  }
+
+  const playheadPct = (currentTime / total) * 100;
 
   return (
     <div style={styles.root} aria-label="Timeline">
-      <Ruler total={total} />
-      <div style={styles.track} role="list">
-        {clips.map((clip) => {
-          // Position and size as percentages of the total timeline length.
-          const leftPct = (clip.start / total) * 100;
-          const widthPct = (clip.duration / total) * 100;
-          return (
-            <div
-              key={clip.id}
-              role="listitem"
-              title={`${clip.label} — ${clip.start.toFixed(2)}s → ${(
-                clip.start + clip.duration
-              ).toFixed(2)}s`}
-              style={{
-                ...styles.clip,
-                left: `${leftPct}%`,
-                width: `${widthPct}%`,
-                background: clip.color ?? 'var(--accent)',
-              }}
-            >
-              <span style={styles.clipLabel}>{clip.label}</span>
-            </div>
-          );
-        })}
+      <TransportBar
+        currentTime={currentTime}
+        total={total}
+        isPlaying={isPlaying}
+        onTogglePlay={togglePlay}
+        onSkipToStart={() => setCurrentTime(0)}
+        onSkipToEnd={() => {
+          setIsPlaying(false);
+          setCurrentTime(total);
+        }}
+        onStepBack={() => setCurrentTime((t) => clamp(t - 1, 0, total))}
+        onStepForward={() => setCurrentTime((t) => clamp(t + 1, 0, total))}
+      />
+      <div
+        ref={trackRef}
+        style={styles.scrubArea}
+        onPointerDown={handleScrubberPointerDown}
+        onPointerMove={handleScrubberPointerMove}
+      >
+        <Ruler total={total} />
+        <div style={styles.track} role="list">
+          {clips.length === 0 && (
+            <span style={styles.emptyTrackHint}>No clips yet — rendered scenes will appear here.</span>
+          )}
+          {clips.map((clip) => {
+            // Position and size as percentages of the total timeline length.
+            const leftPct = (clip.start / total) * 100;
+            const widthPct = (clip.duration / total) * 100;
+            return (
+              <div
+                key={clip.id}
+                role="listitem"
+                title={`${clip.label} — ${clip.start.toFixed(2)}s → ${(
+                  clip.start + clip.duration
+                ).toFixed(2)}s`}
+                style={{
+                  ...styles.clip,
+                  left: `${leftPct}%`,
+                  width: `${widthPct}%`,
+                  background: clip.color ?? 'var(--accent)',
+                }}
+              >
+                <span style={styles.clipLabel}>{clip.label}</span>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ ...styles.playhead, left: `${playheadPct}%` }} aria-hidden="true">
+          <div style={styles.playheadKnob} />
+        </div>
       </div>
+    </div>
+  );
+}
+
+interface TransportBarProps {
+  currentTime: number;
+  total: number;
+  isPlaying: boolean;
+  onTogglePlay: () => void;
+  onSkipToStart: () => void;
+  onSkipToEnd: () => void;
+  onStepBack: () => void;
+  onStepForward: () => void;
+}
+
+/** Play/pause + skip/step buttons and the elapsed/total time readout. */
+function TransportBar({
+  currentTime,
+  total,
+  isPlaying,
+  onTogglePlay,
+  onSkipToStart,
+  onSkipToEnd,
+  onStepBack,
+  onStepForward,
+}: TransportBarProps) {
+  return (
+    <div style={styles.transport} role="toolbar" aria-label="Playback controls">
+      <button type="button" style={styles.transportButton} onClick={onSkipToStart} aria-label="Skip to start">
+        ⏮
+      </button>
+      <button type="button" style={styles.transportButton} onClick={onStepBack} aria-label="Step back 1 second">
+        ⏪
+      </button>
+      <button
+        type="button"
+        style={{ ...styles.transportButton, ...styles.transportButtonPrimary }}
+        onClick={onTogglePlay}
+        aria-label={isPlaying ? 'Pause' : 'Play'}
+      >
+        {isPlaying ? '⏸' : '▶'}
+      </button>
+      <button type="button" style={styles.transportButton} onClick={onStepForward} aria-label="Step forward 1 second">
+        ⏩
+      </button>
+      <button type="button" style={styles.transportButton} onClick={onSkipToEnd} aria-label="Skip to end">
+        ⏭
+      </button>
+      <span style={styles.transportTime}>
+        {formatSeconds(currentTime)} / {formatSeconds(total)}
+      </span>
     </div>
   );
 }
@@ -117,15 +257,62 @@ function formatSeconds(t: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), Math.max(min, max));
+}
+
 const styles = {
   root: {
     display: 'flex',
     flexDirection: 'column',
-    gap: 4,
+    gap: 6,
     width: '100%',
     height: '100%',
     minHeight: 0,
     padding: 4,
+  },
+  transport: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 4,
+    flexShrink: 0,
+  },
+  transportButton: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 28,
+    height: 24,
+    padding: 0,
+    fontSize: 13,
+    lineHeight: 1,
+    color: 'var(--text)',
+    background: 'var(--bg-raised)',
+    border: '1px solid var(--border)',
+    borderRadius: 4,
+    cursor: 'pointer',
+  },
+  transportButtonPrimary: {
+    width: 32,
+    background: 'var(--accent)',
+    borderColor: 'var(--accent)',
+    color: '#0b0d12',
+  },
+  transportTime: {
+    marginLeft: 6,
+    fontSize: 11,
+    fontVariantNumeric: 'tabular-nums',
+    color: 'var(--text-dim)',
+  },
+  scrubArea: {
+    position: 'relative',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 4,
+    flex: 1,
+    minHeight: 0,
+    cursor: 'pointer',
+    touchAction: 'none',
   },
   ruler: {
     position: 'relative',
@@ -149,6 +336,16 @@ const styles = {
     borderRadius: 4,
     overflow: 'hidden',
   },
+  emptyTrackHint: {
+    position: 'absolute',
+    inset: 0,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: 12,
+    color: 'var(--text-dim)',
+    pointerEvents: 'none',
+  },
   clip: {
     position: 'absolute',
     top: 4,
@@ -169,25 +366,22 @@ const styles = {
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
   },
-  empty: {
-    width: '100%',
-    height: '100%',
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-    color: 'var(--text-dim)',
-    border: '1px dashed var(--border)',
-    borderRadius: 4,
-    padding: 12,
+  playhead: {
+    position: 'absolute',
+    top: 16,
+    bottom: 0,
+    width: 0,
+    borderLeft: '2px solid var(--accent)',
+    pointerEvents: 'none',
+    transform: 'translateX(-1px)',
   },
-  emptyLabel: {
-    fontSize: 13,
-    fontWeight: 600,
-    color: 'var(--text)',
-  },
-  emptyHint: {
-    fontSize: 12,
+  playheadKnob: {
+    position: 'absolute',
+    top: -4,
+    left: -4,
+    width: 8,
+    height: 8,
+    borderRadius: '50%',
+    background: 'var(--accent)',
   },
 } satisfies Record<string, CSSProperties>;
