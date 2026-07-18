@@ -1,38 +1,13 @@
 import { useRef, useState } from 'react';
 import type { CSSProperties, DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent } from 'react';
-import type { TimelinePlayback } from './useTimelinePlayback';
+import { PLAYBACK_RATES, type TimelinePlayback } from './useTimelinePlayback';
+import { deriveTimelineTotal, type TimelineClip } from './timelineMath';
+
+export type { TimelineClip } from './timelineMath';
+export { deriveTimelineTotal } from './timelineMath';
 
 /** Drag-and-drop MIME type used to carry a model id onto the timeline (and the video preview). */
 export const MODEL_DRAG_TYPE = 'application/x-motionforge-model-id';
-
-/**
- * One clip on the timeline. `start` and `duration` are in seconds.
- */
-export interface TimelineClip {
-  id: string;
-  /** Label rendered on the block (usually the scene/material name). */
-  label: string;
-  /** Seconds from the timeline origin (t=0). */
-  start: number;
-  /** Length of the clip in seconds. Must be > 0. */
-  duration: number;
-  /** Optional custom fill color; defaults to the accent color. */
-  color?: string;
-}
-
-/** Minimum length (seconds) shown for a timeline with no clips yet. */
-const EMPTY_TIMELINE_FLOOR = 10;
-
-/**
- * Total timeline length in seconds: the parent's override, else the furthest
- * clip end, else a 10s floor so an empty timeline still has a ruler to
- * scrub against. Exported so callers can feed the same number into
- * `useTimelinePlayback` that `Timeline` renders against.
- */
-export function deriveTimelineTotal(clips: TimelineClip[], totalDuration?: number): number {
-  const derivedEnd = clips.reduce((max, c) => Math.max(max, c.start + c.duration), 0);
-  return Math.max(totalDuration ?? Math.max(derivedEnd, EMPTY_TIMELINE_FLOOR), 0.0001);
-}
 
 export interface TimelineProps {
   clips: TimelineClip[];
@@ -53,7 +28,18 @@ export interface TimelineProps {
  */
 export function Timeline({ clips, totalDuration, playback, onDropModel }: TimelineProps) {
   const total = deriveTimelineTotal(clips, totalDuration);
-  const { currentTime, isPlaying, seek, togglePlay, skipToStart, skipToEnd, stepBack, stepForward } = playback;
+  const {
+    currentTime,
+    isPlaying,
+    playbackRate,
+    seek,
+    togglePlay,
+    skipToStart,
+    skipToEnd,
+    stepBack,
+    stepForward,
+    setPlaybackRate,
+  } = playback;
   const trackRef = useRef<HTMLDivElement>(null);
   const [isDropTarget, setIsDropTarget] = useState(false);
 
@@ -107,11 +93,13 @@ export function Timeline({ clips, totalDuration, playback, onDropModel }: Timeli
         currentTime={currentTime}
         total={total}
         isPlaying={isPlaying}
+        playbackRate={playbackRate}
         onTogglePlay={togglePlay}
         onSkipToStart={skipToStart}
         onSkipToEnd={skipToEnd}
         onStepBack={stepBack}
         onStepForward={stepForward}
+        onSetPlaybackRate={setPlaybackRate}
       />
       <div
         ref={trackRef}
@@ -162,23 +150,27 @@ interface TransportBarProps {
   currentTime: number;
   total: number;
   isPlaying: boolean;
+  playbackRate: number;
   onTogglePlay: () => void;
   onSkipToStart: () => void;
   onSkipToEnd: () => void;
   onStepBack: () => void;
   onStepForward: () => void;
+  onSetPlaybackRate: (rate: number) => void;
 }
 
-/** Play/pause + skip/step buttons and the elapsed/total time readout. */
+/** Play/pause + skip/step buttons, a speed selector, and the elapsed/total time readout. */
 function TransportBar({
   currentTime,
   total,
   isPlaying,
+  playbackRate,
   onTogglePlay,
   onSkipToStart,
   onSkipToEnd,
   onStepBack,
   onStepForward,
+  onSetPlaybackRate,
 }: TransportBarProps) {
   return (
     <div style={styles.transport} role="toolbar" aria-label="Playback controls">
@@ -204,6 +196,23 @@ function TransportBar({
       </button>
       <span style={styles.transportTime}>
         {formatSeconds(currentTime)} / {formatSeconds(total)}
+      </span>
+      <span style={styles.speedGroup} role="group" aria-label="Playback speed">
+        {PLAYBACK_RATES.map((rate) => (
+          <button
+            key={rate}
+            type="button"
+            style={
+              rate === playbackRate
+                ? { ...styles.speedButton, ...styles.speedButtonActive }
+                : styles.speedButton
+            }
+            onClick={() => onSetPlaybackRate(rate)}
+            aria-pressed={rate === playbackRate}
+          >
+            {rate}×
+          </button>
+        ))}
       </span>
     </div>
   );
@@ -298,6 +307,26 @@ const styles = {
     fontSize: 11,
     fontVariantNumeric: 'tabular-nums',
     color: 'var(--text-dim)',
+  },
+  speedGroup: {
+    display: 'flex',
+    gap: 2,
+    marginLeft: 'auto',
+  },
+  speedButton: {
+    padding: '2px 6px',
+    fontSize: 11,
+    fontVariantNumeric: 'tabular-nums',
+    color: 'var(--text-dim)',
+    background: 'var(--bg-raised)',
+    border: '1px solid var(--border)',
+    borderRadius: 4,
+    cursor: 'pointer',
+  },
+  speedButtonActive: {
+    color: '#0b0d12',
+    background: 'var(--accent)',
+    borderColor: 'var(--accent)',
   },
   scrubArea: {
     position: 'relative',

@@ -4,26 +4,37 @@ import type { TunableParam } from '@motionforge/shared';
 import type { ParamChange } from '../controls/ControlsPanel';
 import { ResizeHandle } from '../layout/ResizeHandle';
 import { useResizable } from '../layout/useResizable';
-import { MODEL_DRAG_TYPE, Timeline, deriveTimelineTotal } from '../timeline/Timeline';
-import { useTimelinePlayback } from '../timeline/useTimelinePlayback';
-import type { Clip, Mp4JobState, SceneModel } from '../state/useSceneProject';
+import { MODEL_DRAG_TYPE, Timeline } from '../timeline/Timeline';
+import type { TimelineClip } from '../timeline/timelineMath';
+import type { TimelinePlayback } from '../timeline/useTimelinePlayback';
+import type { Mp4JobState, SceneModel } from '../state/useSceneProject';
 import { VideoPreview } from '../video/VideoPreview';
 
 export interface VideoGenerationScreenProps {
   /** Models generated on the Model Generation screen (from `useSceneProject.models`). */
   models: SceneModel[];
-  /** The active model's id (from `useSceneProject.activeModelId`). */
-  activeModelId: string;
-  /** The active model's scene code (from `useSceneProject.code`), live-previewed until a render exists. */
-  code: string;
   /** The active model's tunables (from `useSceneProject.tunables`), edited via the click floater. */
   tunables: TunableParam[];
   /** Patches a tunable on the active model (from `useSceneProject.setParam`). */
   onParamChange: ParamChange;
   /** Current MP4 render job from `useSceneProject.mp4Job`. */
   mp4Job: Mp4JobState | null;
-  /** Timeline clips (from `useSceneProject.clips`), rendered in the bottom row. */
-  clips: Clip[];
+  /** Timeline clips (from `useSceneProject.timelineClips`), rendered in the bottom row. */
+  timelineClips: TimelineClip[];
+  /** Timeline length in seconds (from `useSceneProject.timelineTotal`). */
+  timelineTotal: number;
+  /**
+   * Shared playhead (from `useSceneProject.playback`) — the same clock the
+   * Export screen's timeline reads, so scrubbing/playing stays in sync
+   * across screens instead of each screen keeping its own clock.
+   */
+  playback: TimelinePlayback;
+  /** Scene code for whatever's under the playhead (from `useSceneProject.previewCode`); undefined shows a black screen. */
+  previewCode: string | undefined;
+  /** Playhead position local to the active clip (from `useSceneProject.previewTime`). */
+  previewTime: number;
+  /** Display name for whatever's under the playhead (from `useSceneProject.previewModelName`). */
+  previewModelName: string;
   /**
    * Drops a material onto the video preview: places a 1-second clip for
    * `modelId` at whole-second `second` (from `useSceneProject.addClipAtSecond`).
@@ -46,33 +57,19 @@ export interface VideoGenerationScreenProps {
  */
 export function VideoGenerationScreen({
   models,
-  activeModelId,
-  code,
   tunables,
   onParamChange,
   mp4Job,
-  clips,
+  timelineClips,
+  timelineTotal,
+  playback,
+  previewCode,
+  previewTime,
+  previewModelName,
   onDropModel,
   chat,
 }: VideoGenerationScreenProps) {
-  const activeModel = models.find((m) => m.id === activeModelId);
   const [isDropTarget, setIsDropTarget] = useState(false);
-
-  // Single shared playhead: the Timeline transport controls it, and the
-  // preview reads it, so scrubbing/playing/pausing stay in lockstep.
-  const timelineClips = clips.map((c) => ({ id: c.id, label: c.label, start: c.start, duration: c.duration }));
-  const timelineTotal = deriveTimelineTotal(timelineClips);
-  const playback = useTimelinePlayback(timelineTotal);
-
-  // Which clip (and therefore which model's code) is under the playhead
-  // right now. Clips are assumed never to overlap — at most one model per
-  // timeline second — so the first match is the only match.
-  const activeClip = clips.find(
-    (c) => playback.currentTime >= c.start && playback.currentTime < c.start + c.duration,
-  );
-  const previewModel = activeClip ? models.find((m) => m.id === activeClip.modelId) : undefined;
-  const previewCode = previewModel?.code;
-  const previewTime = activeClip ? playback.currentTime - activeClip.start : playback.currentTime;
 
   const chatWidth = useResizable({
     direction: 'horizontal',
@@ -144,7 +141,7 @@ export function VideoGenerationScreen({
               code={previewCode}
               tunables={tunables}
               onParamChange={onParamChange}
-              modelName={previewModel?.name ?? activeModel?.name ?? 'Model'}
+              modelName={previewModelName}
               time={previewTime}
             />
             {isDropTarget && (
