@@ -3,7 +3,11 @@ import type { ReferenceImage } from '@motionforge/shared';
 import type { Status } from '../state/useSceneProject';
 import { Button, IconButton } from './ui/Button';
 import { PANEL_HEADER } from './ui/Panel';
-import { FIELD } from './ui/Input';
+
+/** The composer's outer shell — the border `FIELD` would otherwise put on the textarea alone. */
+const COMPOSER =
+  'rounded-lg border border-border bg-bg transition-[border-color,box-shadow] duration-100 ' +
+  'focus-within:border-border-strong focus-within:ring-2 focus-within:ring-white/10 motion-reduce:transition-none';
 
 /**
  * A single chat entry rendered in the message list.
@@ -182,12 +186,9 @@ export function ChatPanel({
         </h2>
       )}
       <div ref={listRef} className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto pr-1">
-        {messages.length === 0 && (
-          <div className="flex flex-1 flex-col items-center justify-center gap-1.5 px-3 text-center">
-            <p className="m-0 text-[14px] font-semibold text-text-dim">Describe a scene</p>
-            <p className="m-0 text-[13px] leading-normal text-text-faint">{emptyHint}</p>
-          </div>
-        )}
+        {/* No empty-state copy: the input's own placeholder already says what
+            to type, and the two buttons name what they do. A paragraph
+            explaining them was a third statement of the same thing. */}
         {messages.map((m) => (
           <div
             key={m.id}
@@ -231,8 +232,11 @@ export function ChatPanel({
         </div>
       )}
 
+      {/* Field and actions share one bordered container so the composer reads
+          as a single command box. The border lives here, and the textarea
+          inside it is chromeless, rather than each part drawing its own edge. */}
       <form
-        className="flex flex-shrink-0 flex-col gap-1.5"
+        className={`flex flex-shrink-0 flex-col ${COMPOSER}`}
         onSubmit={(event) => {
           event.preventDefault();
           if (!disabled) send('modify');
@@ -257,7 +261,7 @@ export function ChatPanel({
           onChange={(event) => setInput(event.target.value)}
           placeholder={placeholder}
           rows={2}
-          className={`resize-none font-sans ${FIELD}`}
+          className="w-full resize-none border-none bg-transparent px-2.5 pb-1 pt-2 font-sans text-[14px] text-text outline-none placeholder:text-text-faint disabled:cursor-not-allowed disabled:text-text-faint"
           disabled={busy !== null}
           onKeyDown={(event) => {
             if (event.key === 'Enter' && !event.shiftKey && !disabled) {
@@ -291,7 +295,7 @@ export function ChatPanel({
             event.target.value = '';
           }}
         />
-        <div className="flex items-center justify-end gap-1.5">
+        <div className="flex items-center justify-end gap-1.5 px-1.5 pb-1.5">
           <IconButton
             disabled={busy !== null}
             onClick={openCamera}
@@ -310,10 +314,21 @@ export function ChatPanel({
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
           </IconButton>
-          <Button variant="secondary" type="button" disabled={disabled} onClick={() => send('generate')}>
+          <Button
+            variant="ghost"
+            type="button"
+            disabled={disabled}
+            title="Build a new model from this prompt"
+            onClick={() => send('generate')}
+          >
             {generateLabel}
           </Button>
-          <Button variant="primary" type="submit" disabled={disabled}>
+          <Button
+            variant="primary"
+            type="submit"
+            disabled={disabled}
+            title="Edit the current model (Enter)"
+          >
             {modifyLabel}
           </Button>
         </div>
