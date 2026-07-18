@@ -97,16 +97,6 @@ export default function Hero() {
 function ProductMockup({ typed }) {
   return (
     <div className="relative">
-      {/* Playful sticker */}
-      <div className="absolute -top-4 -right-3 z-20 rotate-[6deg] select-none">
-        <div className="flex items-center gap-1.5 rounded-full border hairline border-royal-blue bg-royal-blue px-3 py-1.5 shadow-sm">
-          <span className="relative flex h-1.5 w-1.5">
-            <span className="absolute inline-flex h-full w-full rounded-full bg-white opacity-60 animate-ping" />
-            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-white" />
-          </span>
-          <span className="font-mono-label text-white">live preview</span>
-        </div>
-      </div>
       {/* Window chrome */}
       <div className="rounded-xl border hairline border-white/10 bg-[#0d1117] shadow-[0_1px_2px_rgba(0,0,0,0.2),0_24px_60px_-24px_rgba(0,0,0,0.5)] overflow-hidden">
         {/* Title bar */}

@@ -34,9 +34,8 @@ export default function Workflow() {
       if (!el) return;
       const rect = el.getBoundingClientRect();
       const viewport = window.innerHeight;
-      // progress 0 when section bottom enters, 1 when section top exits
-      const total = rect.height + viewport;
       const scrolled = viewport - rect.top;
+      const total = rect.height * 1.35;
       const p = Math.min(1, Math.max(0, scrolled / total));
       setProgress(p);
     };
