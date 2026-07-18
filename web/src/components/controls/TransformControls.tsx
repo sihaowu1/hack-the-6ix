@@ -15,21 +15,23 @@ const AXES: Array<{
   min: number;
   max: number;
   step: number;
-  /** Matches the slider to the same X/Y/Z color as the viewport's "Axes" helper. Omitted for `angle`, which isn't a single axis. */
+  /** Matches the slider to the same X/Y/Z color as the viewport's "Axes" helper. Omitted for `angle`/`pitch`, neither of which is a single position axis. */
   axis?: 'x' | 'y' | 'z';
 }> = [
   { key: 'x', label: 'Position X', min: -10, max: 10, step: 0.05, axis: 'x' },
   { key: 'y', label: 'Position Y', min: -10, max: 10, step: 0.05, axis: 'y' },
   { key: 'z', label: 'Position Z', min: -10, max: 10, step: 0.05, axis: 'z' },
-  { key: 'angle', label: 'Angle', min: -180, max: 180, step: 1 },
+  { key: 'angle', label: 'Left/Right', min: -180, max: 180, step: 1 },
+  { key: 'pitch', label: 'Up/Down', min: -89, max: 89, step: 1 },
 ];
 
 /**
- * Position (x/y/z) and Y-rotation (angle) sliders for whichever object was
- * clicked in the viewport. Reads/writes go straight through `ObjectHandle` to
- * the live `THREE.Object3D` in `SceneRuntime` — this never touches PARAMS,
- * generated code, or the AI agent, unlike the PARAMS-driven sliders in
- * `ControlsPanel` rendered alongside it.
+ * Position (x/y/z) and rotation (left/right yaw, up/down pitch) sliders for
+ * whichever object was clicked in the viewport — or, via `ControlsFloater`'s
+ * "Camera" mode, the live camera itself. Reads/writes go straight through
+ * `ObjectHandle` to the live `THREE.Object3D` in `SceneRuntime` — this never
+ * touches PARAMS, generated code, or the AI agent, unlike the PARAMS-driven
+ * sliders in `ControlsPanel` rendered alongside it.
  */
 export function TransformControls({ handle, label = 'Position' }: Props) {
   const [transform, setTransform] = useState<ObjectTransform>(() => handle.getTransform());

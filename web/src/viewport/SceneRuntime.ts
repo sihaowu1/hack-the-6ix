@@ -2,12 +2,15 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { validateSceneModule, type SceneModule } from '@motionforge/shared';
 
-/** A clicked object's position (units) and Y-axis rotation (degrees). */
+/** A clicked object's position (units), left/right yaw (`angle`, Y-axis) and up/down pitch (`pitch`, X-axis), both in degrees. */
 export interface ObjectTransform {
   x: number;
   y: number;
   z: number;
+  /** Left/right rotation, degrees. */
   angle: number;
+  /** Up/down rotation, degrees. */
+  pitch: number;
 }
 
 /**
@@ -74,6 +77,9 @@ export class SceneRuntime {
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.camera = new THREE.PerspectiveCamera(45, 1, 0.1, 500);
     this.camera.position.set(4, 2.6, 5.5);
+    // Yaw around world-up first, then pitch relative to that — the standard
+    // FPS-camera Euler order, so a pitch (up/down) edit never introduces roll.
+    this.camera.rotation.order = 'YXZ';
     this.controls = new OrbitControls(this.camera, canvas);
     this.controls.enableDamping = true;
     this.controls.target.set(0, 0.8, 0);
@@ -164,13 +170,14 @@ export class SceneRuntime {
       y: object.position.y,
       z: object.position.z,
       angle: THREE.MathUtils.radToDeg(object.rotation.y),
+      pitch: THREE.MathUtils.radToDeg(object.rotation.x),
     };
   }
 
   private setObjectTransform(object: THREE.Object3D, transform: ObjectTransform): void {
     this.transformOverrides.set(object, transform);
     object.position.set(transform.x, transform.y, transform.z);
-    object.rotation.y = THREE.MathUtils.degToRad(transform.angle);
+    object.rotation.set(THREE.MathUtils.degToRad(transform.pitch), THREE.MathUtils.degToRad(transform.angle), 0);
   }
 
   /** Handle for the "Camera" editor — mirrors `ObjectHandle` so the same `TransformControls` UI works for both. */
@@ -193,6 +200,7 @@ export class SceneRuntime {
       y: this.camera.position.y,
       z: this.camera.position.z,
       angle: THREE.MathUtils.radToDeg(this.camera.rotation.y),
+      pitch: THREE.MathUtils.radToDeg(this.camera.rotation.x),
     };
   }
 
@@ -206,7 +214,11 @@ export class SceneRuntime {
     const transform = this.cameraOverride;
     if (!transform) return;
     this.camera.position.set(transform.x, transform.y, transform.z);
-    this.camera.rotation.set(0, THREE.MathUtils.degToRad(transform.angle), 0);
+    this.camera.rotation.set(
+      THREE.MathUtils.degToRad(transform.pitch),
+      THREE.MathUtils.degToRad(transform.angle),
+      0,
+    );
   }
 
   /** Shows/hides the red/green/blue X/Y/Z reference axes at the scene origin. */
@@ -275,7 +287,7 @@ export class SceneRuntime {
     // written its own position/rotation for this frame.
     for (const [object, transform] of this.transformOverrides) {
       object.position.set(transform.x, transform.y, transform.z);
-      object.rotation.y = THREE.MathUtils.degToRad(transform.angle);
+      object.rotation.set(THREE.MathUtils.degToRad(transform.pitch), THREE.MathUtils.degToRad(transform.angle), 0);
     }
     this.controls.update();
     // Applied after controls.update() (not folded into the transformOverrides
