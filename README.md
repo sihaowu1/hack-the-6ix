@@ -1,8 +1,12 @@
 <div align="center">
 
-<img src="assets/logo.png" width="240" height="240">
+<img src="assets/logo.png" width="120" height="120">
+
+# Zendai
 
 AI-powered 3D generation from a single prompt.
+
+🏆 Hack the 6ix 2026
 
 [![GitHub stars](https://img.shields.io/github/stars/sihaowu1/zendai?style=social)](https://github.com/sihaowu1/zendai)
 [![GitHub forks](https://img.shields.io/github/forks/sihaowu1/zendai?style=social)](https://github.com/sihaowu1/zendai/network/members)
@@ -47,20 +51,22 @@ Ship your work anywhere.
 
 ## Tech Stack
 
-### Frontend
-
-- React 18, TypeScript, Vite
-- Three.js (WebGL live viewport with OrbitControls)
-- Tailwind CSS v4, Lucide icons
-- CodeMirror 6 (scene code editor)
-
-### Backend
-
-- Express, Node.js, TypeScript
-- Anthropic Claude Sonnet 4.5 via OpenRouter
-- Skill-based prompt architecture (Markdown system prompts)
-- Remotion (server-side MP4 rendering)
-- Auth0 (optional OAuth), MongoDB Atlas (optional marketplace)
+| Layer | Technologies |
+|-------|-------------|
+| Frontend framework | React 18, TypeScript, Vite |
+| Styling and UI | Tailwind CSS v4, Lucide icons, Phosphor icons |
+| 3D and visualization | Three.js, WebGL, OrbitControls |
+| Code editor | CodeMirror 6 (JavaScript + Python, One Dark theme) |
+| Client state | React hooks, localStorage persistence |
+| Auth | Auth0 (GitHub OAuth), optional |
+| Backend framework | Express, Node.js, TypeScript (tsx) |
+| AI model | Claude Sonnet 4.5 via OpenRouter (Anthropic SDK) |
+| AI skills | Markdown skill files loaded as system prompts |
+| Video rendering | Remotion (server-side MP4 export) |
+| Database | MongoDB Atlas (optional, marketplace only) |
+| GitHub integration | Octokit (create repos, commit, pull) |
+| Geometry export | Three.js exporters (GLB, OBJ, STL) |
+| Monorepo | npm workspaces (shared, server, web, remotion) |
 
 ## How It Works
 
@@ -102,6 +108,48 @@ npm run dev
 
 - Frontend: http://localhost:5173
 - Backend: http://localhost:5174
+
+## Environment Variables
+
+| Variable | Purpose | Required |
+|----------|---------|----------|
+| `OPENROUTER_API_KEY` | Claude API access for AI generation | No (offline fallback) |
+| `VITE_AUTH0_DOMAIN` | Auth0 tenant domain | No |
+| `VITE_AUTH0_CLIENT_ID` | Auth0 SPA client ID | No |
+| `VITE_AUTH0_AUDIENCE` | Auth0 API audience | No |
+| `AUTH0_MGMT_CLIENT_ID` | Auth0 M2M client (GitHub push) | No |
+| `AUTH0_MGMT_CLIENT_SECRET` | Auth0 M2M secret (GitHub push) | No |
+| `MONGODB_URI` | MongoDB Atlas (marketplace) | No |
+| `ANTHROPIC_MODEL` | Model override (default: `anthropic/claude-sonnet-4.5`) | No |
+
+## Repo Layout
+
+```
+.
+├── config/              Default runtime configuration
+├── remotion/            Remotion composition for MP4 export
+├── server/              Express backend
+│   └── src/
+│       ├── agents/      AI agents (scene, animation, critique, intent, orchestrator)
+│       ├── ai/          Client setup, skill loader, code extraction
+│       ├── auth/        Auth0 JWT middleware
+│       ├── routes/      API routes (generate, animate, export, github, marketplace)
+│       └── utils/       Logging, tracing
+├── shared/              Types, validation, templates, tunables parser
+├── skills/              AI skill definitions (system prompts)
+│   ├── img2threejs/     Image-to-3D reconstruction
+│   ├── threejs-modelling/   Text-to-3D modelling
+│   ├── threejs-animation/   Animation generation
+│   └── procedural-patterns/ Geometry and material recipes
+├── web/                 Vite + React frontend
+│   └── src/
+│       ├── components/  UI (ChatPanel, ModelsList, screens, timeline)
+│       ├── editor/      CodeMirror scene editor
+│       ├── landing/     Marketing landing page
+│       ├── state/       useSceneProject (all editor state)
+│       └── viewport/    Three.js WebGL runtime and exporters
+└── .env.example         Environment template
+```
 
 ## Team
 
