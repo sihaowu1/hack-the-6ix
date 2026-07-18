@@ -8,7 +8,8 @@ import { Viewport } from '../viewport/Viewport';
 
 interface Props {
   job: Mp4JobState | null;
-  code: string;
+  /** The scene code for whatever's under the playhead. Undefined when the timeline has nothing there — renders a black screen. */
+  code: string | undefined;
   tunables: TunableParam[];
   onParamChange: ParamChange;
   modelName: string;
@@ -53,6 +54,10 @@ export function VideoPreview({
     );
   }
 
+  if (!code) {
+    return <div style={styles.blackScreen} aria-label="Empty timeline" />;
+  }
+
   return (
     <div style={styles.livePreview}>
       <Viewport code={code} onModelClick={enableClickFloater ? setClickAnchor : undefined} time={time} />
@@ -95,6 +100,11 @@ const styles = {
     position: 'relative',
     width: '100%',
     height: '100%',
+  },
+  blackScreen: {
+    width: '100%',
+    height: '100%',
+    background: '#000',
   },
   liveBadge: {
     position: 'absolute',

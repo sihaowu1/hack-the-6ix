@@ -1,6 +1,9 @@
-import { useRef } from 'react';
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
+import { useRef, useState } from 'react';
+import type { CSSProperties, DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent } from 'react';
 import type { TimelinePlayback } from './useTimelinePlayback';
+
+/** Drag-and-drop MIME type used to carry a model id onto the timeline (and the video preview). */
+export const MODEL_DRAG_TYPE = 'application/x-motionforge-model-id';
 
 /**
  * One clip on the timeline. `start` and `duration` are in seconds.
@@ -37,6 +40,8 @@ export interface TimelineProps {
   totalDuration?: number;
   /** Shared playhead state/controls from `useTimelinePlayback`. */
   playback: TimelinePlayback;
+  /** Drops a material at the given whole second, dropped from the Materials list onto the track. */
+  onDropModel?: (modelId: string, second: number) => void;
 }
 
 /**
@@ -46,10 +51,11 @@ export interface TimelineProps {
  * other views — e.g. the video preview — can stay in lockstep with the same
  * playhead instead of Timeline keeping a private clock.
  */
-export function Timeline({ clips, totalDuration, playback }: TimelineProps) {
+export function Timeline({ clips, totalDuration, playback, onDropModel }: TimelineProps) {
   const total = deriveTimelineTotal(clips, totalDuration);
   const { currentTime, isPlaying, seek, togglePlay, skipToStart, skipToEnd, stepBack, stepForward } = playback;
   const trackRef = useRef<HTMLDivElement>(null);
+  const [isDropTarget, setIsDropTarget] = useState(false);
 
   function seekToClientX(clientX: number) {
     const el = trackRef.current;
@@ -57,6 +63,30 @@ export function Timeline({ clips, totalDuration, playback }: TimelineProps) {
     const rect = el.getBoundingClientRect();
     const fraction = clamp((clientX - rect.left) / rect.width, 0, 1);
     seek(fraction * total);
+  }
+
+  function timeAtClientX(clientX: number): number {
+    const el = trackRef.current;
+    if (!el) return 0;
+    const rect = el.getBoundingClientRect();
+    const fraction = clamp((clientX - rect.left) / rect.width, 0, 1);
+    return fraction * total;
+  }
+
+  function handleTrackDragOver(event: ReactDragEvent<HTMLDivElement>) {
+    if (!onDropModel || !event.dataTransfer.types.includes(MODEL_DRAG_TYPE)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    setIsDropTarget(true);
+  }
+
+  function handleTrackDrop(event: ReactDragEvent<HTMLDivElement>) {
+    if (!onDropModel) return;
+    const modelId = event.dataTransfer.getData(MODEL_DRAG_TYPE);
+    setIsDropTarget(false);
+    if (!modelId) return;
+    event.preventDefault();
+    onDropModel(modelId, timeAtClientX(event.clientX));
   }
 
   function handleScrubberPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
@@ -88,9 +118,12 @@ export function Timeline({ clips, totalDuration, playback }: TimelineProps) {
         style={styles.scrubArea}
         onPointerDown={handleScrubberPointerDown}
         onPointerMove={handleScrubberPointerMove}
+        onDragOver={handleTrackDragOver}
+        onDragLeave={() => setIsDropTarget(false)}
+        onDrop={handleTrackDrop}
       >
         <Ruler total={total} />
-        <div style={styles.track} role="list">
+        <div style={isDropTarget ? { ...styles.track, ...styles.trackDropTarget } : styles.track} role="list">
           {clips.length === 0 && (
             <span style={styles.emptyTrackHint}>No clips yet — rendered scenes will appear here.</span>
           )}
@@ -297,6 +330,9 @@ const styles = {
     border: '1px solid var(--border)',
     borderRadius: 4,
     overflow: 'hidden',
+  },
+  trackDropTarget: {
+    boxShadow: 'inset 0 0 0 2px var(--accent)',
   },
   emptyTrackHint: {
     position: 'absolute',
