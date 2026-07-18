@@ -117,6 +117,8 @@ export function Timeline({
   const contextMenuEnabled = Boolean(onDeleteClip || onCopyClip || onPasteClip);
   const [resizing, setResizing] = useState<ResizeState | null>(null);
   const [moving, setMoving] = useState<MoveState | null>(null);
+  /** Clip must be selected before it can be dragged; first click selects only. */
+  const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
 
   const useLanes = lanes.length > 0;
 
@@ -133,6 +135,51 @@ export function Timeline({
       window.removeEventListener('keydown', closeOnEscape);
     };
   }, [contextMenu]);
+
+  // Drive move/resize from window so the gesture stays reliable after the bar moves under the cursor.
+  useEffect(() => {
+    if (!moving || !onMoveClip) return;
+    const state = moving;
+    const move = onMoveClip;
+    function onPointerMove(event: PointerEvent) {
+      const deltaSeconds = (event.clientX - state.startClientX) / state.pxPerSecond;
+      move(state.clipId, Math.max(0, state.initialStart + deltaSeconds));
+    }
+    function onPointerUp() {
+      setMoving(null);
+    }
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+    };
+  }, [moving, onMoveClip]);
+
+  useEffect(() => {
+    if (!resizing || !onResizeClip) return;
+    const state = resizing;
+    const resize = onResizeClip;
+    function onPointerMove(event: PointerEvent) {
+      const deltaSeconds = (event.clientX - state.startClientX) / state.pxPerSecond;
+      resize(state.clipId, Math.max(MIN_CLIP_DURATION, state.initialDuration + deltaSeconds));
+    }
+    function onPointerUp() {
+      setResizing(null);
+    }
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+    };
+  }, [resizing, onResizeClip]);
+
+  useEffect(() => {
+    if (selectedClipId && !clips.some((clip) => clip.id === selectedClipId)) {
+      setSelectedClipId(null);
+    }
+  }, [clips, selectedClipId]);
 
   function seekToClientX(clientX: number) {
     const el = trackRef.current;
@@ -176,6 +223,7 @@ export function Timeline({
     if (!contextMenuEnabled) return;
     event.preventDefault();
     event.stopPropagation();
+    setSelectedClipId(clipId);
     setContextMenu({ x: event.clientX, y: event.clientY, clipId, second: timeAtClientX(event.clientX) });
   }
 
@@ -183,43 +231,30 @@ export function Timeline({
     if (!onResizeClip) return;
     event.stopPropagation();
     event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
+    setSelectedClipId(clip.id);
     const el = trackRef.current;
     const pxPerSecond = el ? el.getBoundingClientRect().width / total : 1;
     setResizing({ clipId: clip.id, initialDuration: clip.duration, startClientX: event.clientX, pxPerSecond });
   }
 
-  function handleResizeHandlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
-    if (!resizing || !onResizeClip) return;
-    const deltaSeconds = (event.clientX - resizing.startClientX) / resizing.pxPerSecond;
-    onResizeClip(resizing.clipId, Math.max(MIN_CLIP_DURATION, resizing.initialDuration + deltaSeconds));
-  }
-
-  function handleResizeHandlePointerUp() {
-    setResizing(null);
-  }
-
   function handleClipBodyPointerDown(event: ReactPointerEvent<HTMLDivElement>, clip: TimelineClip) {
-    if (!onMoveClip || event.button !== 0) return;
+    if (event.button !== 0) return;
     event.stopPropagation();
     event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
+
+    const wasSelected = selectedClipId === clip.id;
+    setSelectedClipId(clip.id);
+
+    // Select-first: first click only selects; drag/move requires an already-selected clip.
+    if (!wasSelected || !onMoveClip) return;
+
     const el = trackRef.current;
     const pxPerSecond = el ? el.getBoundingClientRect().width / total : 1;
     setMoving({ clipId: clip.id, initialStart: clip.start, startClientX: event.clientX, pxPerSecond });
   }
 
-  function handleClipBodyPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
-    if (!moving || !onMoveClip) return;
-    const deltaSeconds = (event.clientX - moving.startClientX) / moving.pxPerSecond;
-    onMoveClip(moving.clipId, Math.max(0, moving.initialStart + deltaSeconds));
-  }
-
-  function handleClipBodyPointerUp() {
-    setMoving(null);
-  }
-
   function handleScrubberPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    setSelectedClipId(null);
     event.currentTarget.setPointerCapture(event.pointerId);
     seekToClientX(event.clientX);
   }
@@ -349,20 +384,26 @@ export function Timeline({
                       {laneClips.map((clip) => {
                         const leftPct = (clip.start / total) * 100;
                         const widthPct = (clip.duration / total) * 100;
+                        const isSelected = selectedClipId === clip.id;
                         return (
                           <div
                             key={clip.id}
                             role="listitem"
+                            aria-selected={isSelected}
                             title={`${clip.label} — ${clip.start.toFixed(2)}s → ${(
                               clip.start + clip.duration
                             ).toFixed(2)}s`}
                             className={`absolute top-0.5 bottom-0.5 flex min-w-[2px] items-center overflow-hidden rounded-[3px] px-1.5 text-[10px] font-semibold text-white shadow-[inset_0_0_0_1px_rgba(0,0,0,0.25)] ${
-                              onMoveClip ? 'cursor-grab active:cursor-grabbing' : ''
+                              isSelected
+                                ? 'z-10 ring-2 ring-white/90'
+                                : ''
+                            } ${
+                              onMoveClip && isSelected
+                                ? 'cursor-grab active:cursor-grabbing'
+                                : 'cursor-pointer'
                             }`}
                             onContextMenu={(event) => handleClipContextMenu(event, clip.id)}
                             onPointerDown={(event) => handleClipBodyPointerDown(event, clip)}
-                            onPointerMove={handleClipBodyPointerMove}
-                            onPointerUp={handleClipBodyPointerUp}
                             style={{
                               left: `${leftPct}%`,
                               width: `${widthPct}%`,
@@ -370,12 +411,10 @@ export function Timeline({
                             }}
                           >
                             <span className="overflow-hidden text-ellipsis whitespace-nowrap">{clip.label}</span>
-                            {onResizeClip && (
+                            {onResizeClip && isSelected && (
                               <div
                                 className="absolute -right-0.5 top-0 bottom-0 w-2.5 cursor-ew-resize touch-none rounded-r-[3px] hover:bg-[rgba(255,255,255,0.35)]"
                                 onPointerDown={(event) => handleResizeHandlePointerDown(event, clip)}
-                                onPointerMove={handleResizeHandlePointerMove}
-                                onPointerUp={handleResizeHandlePointerUp}
                                 aria-label={`Resize ${clip.label}`}
                                 role="slider"
                                 aria-valuenow={clip.duration}
@@ -391,20 +430,24 @@ export function Timeline({
               : clips.map((clip) => {
                   const leftPct = (clip.start / total) * 100;
                   const widthPct = (clip.duration / total) * 100;
+                  const isSelected = selectedClipId === clip.id;
                   return (
                     <div
                       key={clip.id}
                       role="listitem"
+                      aria-selected={isSelected}
                       title={`${clip.label} — ${clip.start.toFixed(2)}s → ${(
                         clip.start + clip.duration
                       ).toFixed(2)}s`}
                       className={`absolute top-1 bottom-1 flex min-w-[2px] items-center overflow-hidden rounded-[3px] px-1.5 text-xs font-semibold text-white shadow-[inset_0_0_0_1px_rgba(0,0,0,0.25)] ${
-                        onMoveClip ? 'cursor-grab active:cursor-grabbing' : ''
+                        isSelected ? 'z-10 ring-2 ring-white/90' : ''
+                      } ${
+                        onMoveClip && isSelected
+                          ? 'cursor-grab active:cursor-grabbing'
+                          : 'cursor-pointer'
                       }`}
                       onContextMenu={(event) => handleClipContextMenu(event, clip.id)}
                       onPointerDown={(event) => handleClipBodyPointerDown(event, clip)}
-                      onPointerMove={handleClipBodyPointerMove}
-                      onPointerUp={handleClipBodyPointerUp}
                       style={{
                         left: `${leftPct}%`,
                         width: `${widthPct}%`,
@@ -412,12 +455,10 @@ export function Timeline({
                       }}
                     >
                       <span className="overflow-hidden text-ellipsis whitespace-nowrap">{clip.label}</span>
-                      {onResizeClip && (
+                      {onResizeClip && isSelected && (
                         <div
                           className="absolute -right-0.5 top-0 bottom-0 w-2.5 cursor-ew-resize touch-none rounded-r-[3px] hover:bg-[rgba(255,255,255,0.35)]"
                           onPointerDown={(event) => handleResizeHandlePointerDown(event, clip)}
-                          onPointerMove={handleResizeHandlePointerMove}
-                          onPointerUp={handleResizeHandlePointerUp}
                           aria-label={`Resize ${clip.label}`}
                           role="slider"
                           aria-valuenow={clip.duration}
