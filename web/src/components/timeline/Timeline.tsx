@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { Pause, Play, Rewind, SkipBack, SkipForward, FastForward } from '@phosphor-icons/react';
 import { PLAYBACK_RATES, type TimelinePlayback } from './useTimelinePlayback';
-import { deriveTimelineTotal, type TimelineClip } from './timelineMath';
+import { deriveTimelineTotal, MIN_CLIP_DURATION, type TimelineClip } from './timelineMath';
 
 export type { TimelineClip } from './timelineMath';
 export { deriveTimelineTotal } from './timelineMath';
@@ -36,9 +36,6 @@ export interface TimelineProps {
   onResizeClip?: (clipId: string, duration: number) => void;
 }
 
-/** Floor on a clip's duration so a resize drag can never collapse it to zero width. */
-const MIN_CLIP_DURATION = 0.1;
-
 interface ContextMenuState {
   x: number;
   y: number;
@@ -46,6 +43,18 @@ interface ContextMenuState {
   clipId?: string;
   /** Timeline second under the right-click, used as the paste target. */
   second: number;
+}
+
+interface ResizeState {
+  clipId: string;
+  /** The clip's duration when the drag started. */
+  initialDuration: number;
+  /** `clientX` when the drag started. */
+  startClientX: number;
+  /** Pixels-per-second scale captured at drag start, so growing the clip
+   *  (which can grow `total` and rescale the track) doesn't feed back into
+   *  the drag itself. */
+  pxPerSecond: number;
 }
 
 /**
@@ -64,6 +73,7 @@ export function Timeline({
   onCopyClip,
   onPasteClip,
   hasClipboardClip,
+  onResizeClip,
 }: TimelineProps) {
   const total = deriveTimelineTotal(clips, totalDuration);
   const {
@@ -82,6 +92,7 @@ export function Timeline({
   const [isDropTarget, setIsDropTarget] = useState(false);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const contextMenuEnabled = Boolean(onDeleteClip || onCopyClip || onPasteClip);
+  const [resizing, setResizing] = useState<ResizeState | null>(null);
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -140,6 +151,26 @@ export function Timeline({
     event.preventDefault();
     event.stopPropagation();
     setContextMenu({ x: event.clientX, y: event.clientY, clipId, second: timeAtClientX(event.clientX) });
+  }
+
+  function handleResizeHandlePointerDown(event: ReactPointerEvent<HTMLDivElement>, clip: TimelineClip) {
+    if (!onResizeClip) return;
+    event.stopPropagation();
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const el = trackRef.current;
+    const pxPerSecond = el ? el.getBoundingClientRect().width / total : 1;
+    setResizing({ clipId: clip.id, initialDuration: clip.duration, startClientX: event.clientX, pxPerSecond });
+  }
+
+  function handleResizeHandlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!resizing || !onResizeClip) return;
+    const deltaSeconds = (event.clientX - resizing.startClientX) / resizing.pxPerSecond;
+    onResizeClip(resizing.clipId, Math.max(MIN_CLIP_DURATION, resizing.initialDuration + deltaSeconds));
+  }
+
+  function handleResizeHandlePointerUp() {
+    setResizing(null);
   }
 
   function handleScrubberPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
@@ -201,7 +232,7 @@ export function Timeline({
                 title={`${clip.label} — ${clip.start.toFixed(2)}s → ${(
                   clip.start + clip.duration
                 ).toFixed(2)}s`}
-                className="absolute top-1 bottom-1 flex min-w-[2px] items-center overflow-hidden rounded-[3px] px-1.5 text-xs font-semibold text-[#0b0d12] shadow-[inset_0_0_0_1px_rgba(0,0,0,0.25)]"
+                className="absolute top-1 bottom-1 flex min-w-[2px] items-center rounded-[3px] px-1.5 text-xs font-semibold text-[#0b0d12] shadow-[inset_0_0_0_1px_rgba(0,0,0,0.25)]"
                 onContextMenu={(event) => handleClipContextMenu(event, clip.id)}
                 style={{
                   left: `${leftPct}%`,
@@ -210,6 +241,18 @@ export function Timeline({
                 }}
               >
                 <span className="overflow-hidden text-ellipsis whitespace-nowrap">{clip.label}</span>
+                {onResizeClip && (
+                  <div
+                    className="absolute -right-0.5 top-0 bottom-0 w-2.5 cursor-ew-resize touch-none rounded-r-[3px] hover:bg-[rgba(255,255,255,0.35)]"
+                    onPointerDown={(event) => handleResizeHandlePointerDown(event, clip)}
+                    onPointerMove={handleResizeHandlePointerMove}
+                    onPointerUp={handleResizeHandlePointerUp}
+                    aria-label={`Resize ${clip.label}`}
+                    role="slider"
+                    aria-valuenow={clip.duration}
+                    aria-orientation="horizontal"
+                  />
+                )}
               </div>
             );
           })}

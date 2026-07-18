@@ -48,6 +48,8 @@ export interface VideoGenerationScreenProps {
   onPasteClip: (second: number) => void;
   /** Whether a clip is currently in the clipboard (from `useSceneProject.hasClipboardClip`). */
   hasClipboardClip: boolean;
+  /** Resizes a clip via its timeline drag handle (from `useSceneProject.resizeClip`). */
+  onResizeClip: (clipId: string, duration: number) => void;
   /** Optional slot for the chat pane (component not built yet — see SPEC.md Issue 4). */
   chat?: ReactNode;
 }
@@ -79,6 +81,7 @@ export function VideoGenerationScreen({
   onCopyClip,
   onPasteClip,
   hasClipboardClip,
+  onResizeClip,
   chat,
 }: VideoGenerationScreenProps) {
   const [isDropTarget, setIsDropTarget] = useState(false);
@@ -180,6 +183,7 @@ export function VideoGenerationScreen({
             onCopyClip={onCopyClip}
             onPasteClip={onPasteClip}
             hasClipboardClip={hasClipboardClip}
+            onResizeClip={onResizeClip}
           />
         </Pane>
       </div>

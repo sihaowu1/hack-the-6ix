@@ -8,7 +8,7 @@ import {
   type RenderSettings,
 } from '@motionforge/shared';
 import * as api from '../api/client';
-import { deriveTimelineTotal, type TimelineClip } from '../components/timeline/timelineMath';
+import { deriveTimelineTotal, MIN_CLIP_DURATION, type TimelineClip } from '../components/timeline/timelineMath';
 import { useTimelinePlayback } from '../components/timeline/useTimelinePlayback';
 
 /**
@@ -287,6 +287,25 @@ export function useSceneProject() {
     [clipboardClip],
   );
 
+  // Timeline resize handle: changes only how long a clip is shown, not its
+  // playback rate — `updateScene`'s `time` still advances one second per
+  // second, so a periodic animation keeps looping past the clip's original
+  // length and a one-shot animation does whatever its own code does at
+  // large `time` values. Clamped to a minimum width and to the start of the
+  // next clip on the timeline so resizing can't create an overlap.
+  const resizeClip = useCallback((id: string, duration: number) => {
+    setClips((current) => {
+      const clip = current.find((c) => c.id === id);
+      if (!clip) return current;
+      const next = current
+        .filter((c) => c.id !== id && c.start >= clip.start)
+        .reduce<Clip | undefined>((closest, c) => (!closest || c.start < closest.start ? c : closest), undefined);
+      const maxDuration = next ? next.start - clip.start : Infinity;
+      const clamped = Math.min(Math.max(duration, MIN_CLIP_DURATION), maxDuration);
+      return current.map((c) => (c.id === id ? { ...c, duration: clamped } : c));
+    });
+  }, []);
+
   const exportCode = useCallback(
     () =>
       run('Exporting code…', async () => {
@@ -386,6 +405,7 @@ export function useSceneProject() {
     deleteClip,
     copyClip,
     pasteClip,
+    resizeClip,
     hasClipboardClip: clipboardClip !== null,
     timelineClips,
     timelineTotal,

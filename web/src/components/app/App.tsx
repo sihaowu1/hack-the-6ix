@@ -48,6 +48,7 @@ export function App() {
                 onCopyClip={project.copyClip}
                 onPasteClip={project.pasteClip}
                 hasClipboardClip={project.hasClipboardClip}
+                onResizeClip={project.resizeClip}
                 chat={
                   <ChatPanel
                     busy={project.busy}
