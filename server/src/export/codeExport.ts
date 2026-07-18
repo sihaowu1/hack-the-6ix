@@ -36,7 +36,7 @@ export function buildProjectFiles(options: CodeExportOptions): ProjectFile[] {
  * standalone Three.js viewer, the Blender script, and a README.
  */
 export function streamProjectZip(res: Response, options: CodeExportOptions): void {
-  const title = options.title?.trim() || 'MotionForge scene';
+  const title = options.title?.trim() || 'Zendai scene';
   const slug = slugify(title);
   res.setHeader('Content-Type', 'application/zip');
   res.setHeader('Content-Disposition', `attachment; filename="${slug}.zip"`);

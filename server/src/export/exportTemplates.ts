@@ -33,7 +33,7 @@ export function viewerHtml(title: string): string {
 }
 
 export function viewerJs(): string {
-  return `// Standalone viewer for the exported MotionForge scene module.
+  return `// Standalone viewer for the exported Zendai scene module.
 // Serve this folder over HTTP (e.g. \`npx serve .\`) and open index.html.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -82,7 +82,7 @@ renderer.setAnimationLoop((now) => {
 export function exportReadme(title: string): string {
   return `# ${title}
 
-Exported from MotionForge — a code-based 3D scene, fully editable.
+Exported from Zendai — a code-based 3D scene, fully editable.
 
 ## Files
 

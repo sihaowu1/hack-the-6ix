@@ -1,7 +1,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
-import { App } from './app/App';
+import { App } from './components/app/App';
 import { AuthRoot } from './auth/useAuth';
 import { AuthTokenBridge } from './auth/AuthTokenBridge';
 import Home from './landing/Home';

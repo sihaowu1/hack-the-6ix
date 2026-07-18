@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-MotionForge: an AI-powered, **code-based** 3D generation and video-editing system. A prompt
+Zendai: an AI-powered, **code-based** 3D generation and video-editing system. A prompt
 goes to an AI agent that writes a Three.js/WebGL scene module and a matching Blender Python
 script — never an image or video-generation model — and both stay live-editable, tunable
 through sliders/switches, exportable as code, and renderable to MP4 through Remotion.

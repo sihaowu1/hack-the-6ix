@@ -8,8 +8,8 @@ import {
   type RenderSettings,
 } from '@motionforge/shared';
 import * as api from '../api/client';
-import { deriveTimelineTotal, type TimelineClip } from '../timeline/timelineMath';
-import { useTimelinePlayback } from '../timeline/useTimelinePlayback';
+import { deriveTimelineTotal, type TimelineClip } from '../components/timeline/timelineMath';
+import { useTimelinePlayback } from '../components/timeline/useTimelinePlayback';
 
 /**
  * All editor state in one hook.
@@ -259,8 +259,8 @@ export function useSceneProject() {
     () =>
       run('Exporting code…', async () => {
         const blob = await api.exportCodeZip(code, blenderCode);
-        downloadBlob(blob, 'motionforge-scene.zip');
-        setStatus({ kind: 'info', text: 'Project exported as motionforge-scene.zip.' });
+        downloadBlob(blob, 'zendai-scene.zip');
+        setStatus({ kind: 'info', text: 'Project exported as zendai-scene.zip.' });
       }),
     [run, code, blenderCode],
   );

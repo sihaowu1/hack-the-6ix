@@ -7,8 +7,8 @@ const app = createApp();
 
 void connectMongo();
 
-app.listen(config.server.port, () => {
-  log('server', `MotionForge server listening on http://localhost:${config.server.port}`);
+const server = app.listen(config.server.port, () => {
+  log('server', `Zendai server listening on http://localhost:${config.server.port}`);
   log(
     'server',
     process.env.OPENROUTER_API_KEY
@@ -22,3 +22,13 @@ app.listen(config.server.port, () => {
       : 'Blender MCP: disabled (set BLENDER_MCP_ENABLED=true to enable)',
   );
 });
+
+function shutdown(signal: NodeJS.Signals): void {
+  log('server', `${signal} received, shutting down`);
+  server.close(() => process.exit(0));
+  // Force-exit if a lingering connection (or the Blender MCP child process) blocks a clean close.
+  setTimeout(() => process.exit(0), 2000).unref();
+}
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);

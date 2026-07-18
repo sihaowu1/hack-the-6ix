@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-MotionForge Blender MCP server.
+Zendai Blender MCP server.
 
 Spawned over stdio by server/src/mcp/blenderMcp.ts (via the official MCP
 TypeScript SDK's StdioClientTransport) whenever BLENDER_MCP_ENABLED=true.
 Exposes three MCP tools that Claude's Blender agent (server/src/agents/
-blenderAgent.ts) calls directly; each one forwards to the MotionForge bridge
+blenderAgent.ts) calls directly; each one forwards to the Zendai bridge
 add-on (../addon.py) running inside Blender over a local TCP socket.
 
 This process holds no Blender state itself: it is a thin protocol translator
@@ -22,7 +22,7 @@ from mcp.server.fastmcp import FastMCP
 BRIDGE_HOST = os.environ.get("MOTIONFORGE_BRIDGE_HOST", "127.0.0.1")
 BRIDGE_PORT = int(os.environ.get("MOTIONFORGE_BRIDGE_PORT", "9876"))
 
-mcp = FastMCP("motionforge-blender")
+mcp = FastMCP("zendai-blender")
 
 
 def _call_bridge(request: dict) -> dict:
@@ -45,10 +45,10 @@ def _call_bridge_or_raise(request: dict) -> dict:
         response = _call_bridge(request)
     except OSError as exc:
         raise RuntimeError(
-            "Could not reach the MotionForge bridge add-on in Blender at "
-            f"{BRIDGE_HOST}:{BRIDGE_PORT}. Open Blender, enable the MotionForge "
+            "Could not reach the Zendai bridge add-on in Blender at "
+            f"{BRIDGE_HOST}:{BRIDGE_PORT}. Open Blender, enable the Zendai "
             "Bridge add-on (blender/addon.py), and click 'Start Bridge Server' "
-            "in the 3D Viewport sidebar's MotionForge tab."
+            "in the 3D Viewport sidebar's Zendai tab."
         ) from exc
     if not response.get("ok"):
         raise RuntimeError(response.get("error", "unknown Blender bridge error"))
