@@ -17,8 +17,8 @@ export default function FinalCTA() {
             <span className="inline-block ml-1 animate-fade-up">.</span>
           </h2>
           <p className="mt-6 max-w-xl text-base lg:text-lg leading-relaxed text-slate-400">
-            Generate your first 3D world in seconds. No installs, no setup. Just a
-            prompt and a viewport.
+            Generate your first code-based 3D scene in seconds. No installs, no
+            opaque assets. Just a prompt, clean code, and full control.
           </p>
 
           <div className="mt-10">

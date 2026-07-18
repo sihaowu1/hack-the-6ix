@@ -1,30 +1,30 @@
 import React from "react";
-import { Boxes, PencilRuler, MonitorPlay, FileCode2, ArrowUpRight } from "lucide-react";
+import { Code2, PencilRuler, MonitorPlay, FileCode2, ArrowUpRight } from "lucide-react";
 
 const FEATURES = [
   {
-    icon: Boxes,
-    title: "Blender Integration",
+    icon: Code2,
+    title: "Code, Not Mesh",
     description:
-      "Native import of .blend files with full geometry, materials, and rigging preserved. Round-trip edits between browser and desktop.",
+      "Every scene is pure Three.js source — readable, diffable, and version-controllable. No opaque binary assets or black-box AI outputs.",
   },
   {
     icon: PencilRuler,
-    title: "Editable Scenes",
+    title: "Edit Any Line",
     description:
-      "Every object is non-destructive. Adjust meshes, lighting, and camera paths on a visual timeline without rebuilding.",
+      "Change a color, tweak a camera path, adjust timing — it's just code. Modify anything without regenerating the entire scene.",
   },
   {
     icon: MonitorPlay,
-    title: "Browser-Based 3D",
+    title: "Instant Preview",
     description:
-      "Real-time WebGL rendering. No installs, no plugins. Your scenes stream instantly to any modern browser.",
+      "Real-time WebGL rendering in the browser. See every code change reflected live — no build step, no waiting.",
   },
   {
     icon: FileCode2,
-    title: "Export Code & MP4",
+    title: "Ship as Code or Video",
     description:
-      "Ship production-ready Three.js components or render cinematic MP4s via Remotion, directly from the canvas.",
+      "Export production-ready Three.js components to drop into any app, or render cinematic MP4s via Remotion.",
   },
 ];
 
@@ -38,11 +38,11 @@ export default function Features() {
           </div>
           <div className="lg:col-span-8">
             <h2 className="font-heading text-3xl sm:text-4xl lg:text-5xl font-bold tracking-[-0.03em] text-white text-balance">
-              A complete toolchain for spatial content.
+              Why code beats mesh.
             </h2>
             <p className="mt-4 max-w-xl text-slate-400 leading-relaxed">
-              Four capabilities that take a scene from a single sentence to a
-              shipped, exportable product.
+              AI-generated meshes are a black box. Code-first means you
+              understand, control, and ship every pixel.
             </p>
           </div>
         </div>

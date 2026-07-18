@@ -5,22 +5,22 @@ const STEPS = [
   {
     icon: PenLine,
     label: "Prompt",
-    description: "Describe the world you want: terrain, mood, materials, motion.",
+    description: "Describe your scene in plain English — terrain, mood, motion, anything.",
   },
   {
     icon: Wand2,
     label: "Generate",
-    description: "Zendai assembles geometry, lighting, and camera into an editable scene.",
+    description: "Zendai writes clean Three.js code — not a mesh blob, real readable source.",
   },
   {
     icon: SlidersHorizontal,
     label: "Edit",
-    description: "Refine on the timeline. Tweak meshes, keyframes, and properties directly.",
+    description: "Change any parameter in the code or use visual controls. Every tweak is a line diff.",
   },
   {
     icon: Download,
     label: "Export",
-    description: "Ship as Three.js code or render a cinematic MP4 through Remotion.",
+    description: "Ship the code into your app or render a polished MP4 through Remotion.",
   },
 ];
 
@@ -53,7 +53,7 @@ export default function Workflow() {
           </div>
           <div className="lg:col-span-8">
             <h2 className="font-heading text-3xl sm:text-4xl lg:text-5xl font-bold tracking-[-0.03em] text-white text-balance">
-              Four steps from sentence to scene.
+              From sentence to source code.
             </h2>
           </div>
         </div>
