@@ -19,9 +19,11 @@ interface Props {
 export function ControlsPanel({ tunables, onChange }: Props) {
   return (
     <section className="flex flex-col gap-2.5 rounded-lg border border-border bg-bg-raised p-3">
-      <h2 className="m-0 flex items-center gap-1.5 text-xs uppercase tracking-wider text-text-dim">Controls</h2>
+      <h2 className="m-0 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-text-dim">
+        Controls
+      </h2>
       {tunables.length === 0 ? (
-        <p className="m-0 text-xs leading-relaxed text-text-dim">
+        <p className="m-0 text-[13px] leading-relaxed text-text-dim">
           No tunable parameters found. Annotate PARAMS entries with{' '}
           <code className="rounded bg-bg px-1 py-px">@tunable</code> to get sliders and switches.
         </p>

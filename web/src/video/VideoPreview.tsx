@@ -54,7 +54,7 @@ export function VideoPreview({
   }
 
   const badgeClass =
-    'absolute left-2 bottom-2 max-w-[calc(100%-16px)] rounded border border-border bg-[rgba(18,21,28,0.85)] px-2.5 py-1 text-xs text-text-dim';
+    'absolute left-2 bottom-2 max-w-[calc(100%-16px)] rounded-md border border-border bg-[rgba(10,10,11,0.85)] px-2.5 py-1 text-[12px] text-text-dim';
 
   if (!code) {
     return <div className="h-full w-full bg-black" aria-label="Empty timeline" />;

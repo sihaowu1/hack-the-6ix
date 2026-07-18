@@ -24,7 +24,7 @@ export function PromptBar({ busy, onGenerate, onModify }: Props) {
       <span className="mr-1.5 whitespace-nowrap font-bold tracking-wide text-accent">Zendai</span>
       <input
         type="text"
-        className="flex-1 rounded-md border border-border bg-bg px-2.5 py-1.5 text-text focus:outline focus:outline-1 focus:outline-accent"
+        className="flex-1 rounded-md border border-border bg-bg px-2.5 py-1.5 text-[13px] text-text placeholder:text-text-faint focus:border-accent focus:outline-none"
         value={prompt}
         placeholder='Describe a 3D scene… e.g. "a gold torus knot spinning over a dark floor"'
         onChange={(event) => setPrompt(event.target.value)}
@@ -32,20 +32,10 @@ export function PromptBar({ busy, onGenerate, onModify }: Props) {
           if (event.key === 'Enter' && !disabled) onGenerate(prompt.trim());
         }}
       />
-      <button
-        type="button"
-        className="rounded-md bg-accent px-3.5 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45"
-        disabled={disabled}
-        onClick={() => onGenerate(prompt.trim())}
-      >
+      <button type="button" className="btn btn-primary" disabled={disabled} onClick={() => onGenerate(prompt.trim())}>
         Generate
       </button>
-      <button
-        type="button"
-        className="rounded-md border border-border bg-bg-raised px-3.5 py-2 font-semibold text-text disabled:cursor-not-allowed disabled:opacity-45"
-        disabled={disabled}
-        onClick={() => onModify(prompt.trim())}
-      >
+      <button type="button" className="btn btn-secondary" disabled={disabled} onClick={() => onModify(prompt.trim())}>
         Modify
       </button>
     </header>

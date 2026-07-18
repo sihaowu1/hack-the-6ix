@@ -93,41 +93,33 @@ export function ExportScreen({
     >
       <div className="flex min-h-0 min-w-0 flex-col gap-2.5 overflow-y-auto bg-bg-panel p-3">
         <section className="flex flex-col gap-2.5 rounded-lg border border-border bg-bg-raised p-3" aria-label="Export options">
-          <h2 className="m-0 flex items-center gap-1.5 text-xs uppercase tracking-wider text-text-dim">Export options</h2>
-          <p className="m-0 text-xs leading-relaxed text-text-dim">
+          <h2 className="m-0 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-text-dim">
+            Export options
+          </h2>
+          <p className="m-0 text-[13px] leading-relaxed text-text-dim">
             Download the generated project as code, or render it to an MP4.
           </p>
-          <button
-            type="button"
-            className="rounded-md bg-accent px-3.5 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45"
-            disabled
-          >
+          <button type="button" className="btn btn-primary" disabled>
             Export code (.zip)
           </button>
-          <button
-            type="button"
-            className="rounded-md bg-accent px-3.5 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45"
-            disabled
-          >
+          <button type="button" className="btn btn-primary" disabled>
             Render MP4 (Remotion)
           </button>
         </section>
         <section className="flex flex-col gap-2.5 rounded-lg border border-border bg-bg-raised p-3" aria-label="Export to GitHub">
-          <h2 className="m-0 flex items-center gap-1.5 text-xs uppercase tracking-wider text-text-dim">Export to GitHub</h2>
-          <p className="m-0 text-xs leading-relaxed text-text-dim">
+          <h2 className="m-0 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-text-dim">
+            Export to GitHub
+          </h2>
+          <p className="m-0 text-[13px] leading-relaxed text-text-dim">
             Push the generated project straight to a GitHub repository.
           </p>
           <input
             type="text"
-            className="rounded-md border border-border bg-bg px-2.5 py-1.5 text-text focus:outline focus:outline-1 focus:outline-accent"
+            className="rounded-md border border-border bg-bg px-2.5 py-1.5 text-[13px] text-text placeholder:text-text-faint focus:border-accent focus:outline-none"
             placeholder="owner/repo"
             disabled
           />
-          <button
-            type="button"
-            className="rounded-md bg-accent px-3.5 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45"
-            disabled
-          >
+          <button type="button" className="btn btn-primary" disabled>
             Push to GitHub
           </button>
         </section>

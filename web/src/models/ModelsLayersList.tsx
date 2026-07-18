@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { extractLayers } from '@motionforge/shared';
+import { CaretRight } from '@phosphor-icons/react';
 import type { SceneModel } from '../state/useSceneProject';
 
 interface Props {
@@ -28,7 +29,7 @@ export function ModelsLayersList({ models, activeModelId, onSelectModel }: Props
 
   if (models.length === 0) {
     return (
-      <p className="m-0 text-xs leading-relaxed text-text-dim">
+      <p className="m-0 text-[13px] leading-relaxed text-text-dim">
         No models yet. Generate one from the chat above to see it listed here.
       </p>
     );
@@ -49,7 +50,7 @@ export function ModelsLayersList({ models, activeModelId, onSelectModel }: Props
           >
             <button
               type="button"
-              className={`flex w-full items-center gap-2 rounded-none border-none bg-transparent px-2.5 py-2 text-left font-medium ${
+              className={`flex w-full items-center gap-2 rounded-none border-none bg-transparent px-2.5 py-2 text-left font-medium transition-colors hover:bg-bg-hover ${
                 active ? 'text-accent' : 'text-text'
               }`}
               aria-expanded={expanded}
@@ -58,14 +59,14 @@ export function ModelsLayersList({ models, activeModelId, onSelectModel }: Props
                 setExpandedId(expanded ? null : model.id);
               }}
             >
-              <span
-                className={`inline-block flex-shrink-0 text-[10px] text-text-dim transition-transform duration-150 ease-out ${
+              <CaretRight
+                size={12}
+                weight="bold"
+                className={`flex-shrink-0 text-text-dim transition-transform duration-150 ease-out ${
                   expanded ? 'rotate-90' : ''
                 }`}
                 aria-hidden="true"
-              >
-                ▸
-              </span>
+              />
               <span
                 className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[13px]"
                 title={model.name}
@@ -73,7 +74,7 @@ export function ModelsLayersList({ models, activeModelId, onSelectModel }: Props
                 {model.name}
               </span>
               <span
-                className="min-w-[18px] flex-shrink-0 rounded-full border border-border bg-bg px-1.5 py-px text-center text-[11px] tabular-nums text-text-dim"
+                className="min-w-[20px] flex-shrink-0 rounded-full border border-border bg-bg px-1.5 py-px text-center text-[11px] tabular-nums text-text-dim"
                 title={`${layers.length} layer(s)`}
               >
                 {layers.length}
@@ -82,10 +83,10 @@ export function ModelsLayersList({ models, activeModelId, onSelectModel }: Props
             {expanded && (
               <ul className="m-0 flex flex-col gap-0.5 py-0 pl-[30px] pr-2.5 pb-2">
                 {layers.length === 0 ? (
-                  <li className="font-sans text-xs italic text-text-dim">No mesh groups found</li>
+                  <li className="font-sans text-[12px] italic text-text-dim">No mesh groups found</li>
                 ) : (
                   layers.map((layer) => (
-                    <li key={layer} className="font-mono text-xs text-text-dim">
+                    <li key={layer} className="font-mono text-[12px] text-text-dim">
                       {layer}
                     </li>
                   ))

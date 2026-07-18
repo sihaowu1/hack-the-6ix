@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { TunableParam } from '@motionforge/shared';
+import { X } from '@phosphor-icons/react';
 import { ControlsPanel, type ParamChange } from './ControlsPanel';
 
 interface Props {
@@ -65,18 +66,13 @@ export function ControlsFloater({ anchor, title, tunables, onChange, onClose }: 
     >
       <header className="flex flex-shrink-0 items-center gap-2 border-b border-border bg-bg-raised py-2 pl-3 pr-2">
         <span
-          className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-xs font-semibold uppercase tracking-wider text-text-dim"
+          className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[11px] font-semibold uppercase tracking-wider text-text-dim"
           title={title}
         >
           {title}
         </span>
-        <button
-          type="button"
-          className="flex h-[22px] w-[22px] flex-shrink-0 items-center justify-center rounded bg-transparent p-0 text-base leading-none text-text-dim hover:bg-bg hover:text-text"
-          aria-label="Close controls"
-          onClick={onClose}
-        >
-          ×
+        <button type="button" className="btn-icon h-6 w-6" aria-label="Close controls" onClick={onClose}>
+          <X size={14} />
         </button>
       </header>
       <div className="min-h-0 overflow-y-auto p-3 [&_section]:border-0 [&_section]:bg-transparent [&_section]:p-0">

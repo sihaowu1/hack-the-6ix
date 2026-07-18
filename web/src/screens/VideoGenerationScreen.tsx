@@ -147,7 +147,7 @@ export function VideoGenerationScreen({
             />
             {isDropTarget && (
               <div
-                className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[rgba(18,21,28,0.6)] text-[13px] font-semibold text-text"
+                className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[rgba(10,10,11,0.65)] text-[13px] font-semibold text-text"
                 aria-hidden="true"
               >
                 Drop to place at {formatDropSecond(playback.currentTime)}s
@@ -204,6 +204,7 @@ function MaterialsList({ models }: { models: SceneModel[] }) {
         >
           <div className="h-8 w-8 flex-shrink-0 rounded-sm border border-border bg-bg" aria-hidden="true" />
           <span className="overflow-hidden text-ellipsis whitespace-nowrap text-[13px] text-text" title={m.name}>
+
             {m.name}
           </span>
         </li>
@@ -223,7 +224,7 @@ function Pane({
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-bg-panel" aria-label={title}>
-      <header className="border-b border-border bg-bg-raised px-3 py-2 text-xs font-semibold uppercase tracking-wider text-text-dim">
+      <header className="border-b border-border bg-bg-raised px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-text-dim">
         {title}
       </header>
       <div className={`min-h-0 flex-1 overflow-auto p-3 ${bodyClassName ?? ''}`}>{children}</div>
@@ -234,8 +235,8 @@ function Pane({
 function Placeholder({ label, hint }: { label: string; hint: string }) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-1.5 rounded border border-dashed border-border p-4 text-center text-text-dim">
-      <div className="text-sm font-semibold text-text">{label}</div>
-      <div className="text-xs">{hint}</div>
+      <div className="text-[14px] font-semibold text-text">{label}</div>
+      <div className="text-[13px]">{hint}</div>
     </div>
   );
 }

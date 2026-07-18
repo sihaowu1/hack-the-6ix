@@ -28,13 +28,10 @@ export function ExportPanel({ busy, mp4Job, onExportCode, onExportMp4 }: Props) 
 
   return (
     <section className="flex flex-col gap-2.5 rounded-lg border border-border bg-bg-raised p-3">
-      <h2 className="m-0 flex items-center gap-1.5 text-xs uppercase tracking-wider text-text-dim">Export</h2>
-      <button
-        type="button"
-        className="rounded-md bg-accent px-3.5 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45"
-        disabled={busy !== null}
-        onClick={onExportCode}
-      >
+      <h2 className="m-0 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-text-dim">
+        Export
+      </h2>
+      <button type="button" className="btn btn-primary" disabled={busy !== null} onClick={onExportCode}>
         Export code (.zip)
       </button>
 
@@ -42,7 +39,7 @@ export function ExportPanel({ busy, mp4Job, onExportCode, onExportMp4 }: Props) 
         <label className="flex flex-col gap-1 text-[11px] text-text-dim">
           FPS
           <select
-            className="rounded-md border border-border bg-bg px-2.5 py-1.5 text-text focus:outline focus:outline-1 focus:outline-accent"
+            className="rounded-md border border-border bg-bg px-2.5 py-1.5 text-[13px] text-text focus:border-accent focus:outline-none"
             value={fps}
             onChange={(event) => setFps(Number(event.target.value))}
           >
@@ -55,7 +52,7 @@ export function ExportPanel({ busy, mp4Job, onExportCode, onExportMp4 }: Props) 
           Seconds
           <input
             type="number"
-            className="rounded-md border border-border bg-bg px-2.5 py-1.5 text-text focus:outline focus:outline-1 focus:outline-accent"
+            className="rounded-md border border-border bg-bg px-2.5 py-1.5 text-[13px] text-text focus:border-accent focus:outline-none"
             min={1}
             max={60}
             value={duration}
@@ -65,7 +62,7 @@ export function ExportPanel({ busy, mp4Job, onExportCode, onExportMp4 }: Props) 
         <label className="flex flex-col gap-1 text-[11px] text-text-dim">
           Size
           <select
-            className="rounded-md border border-border bg-bg px-2.5 py-1.5 text-text focus:outline focus:outline-1 focus:outline-accent"
+            className="rounded-md border border-border bg-bg px-2.5 py-1.5 text-[13px] text-text focus:border-accent focus:outline-none"
             value={resolution}
             onChange={(event) => setResolution(Number(event.target.value))}
           >
@@ -80,7 +77,7 @@ export function ExportPanel({ busy, mp4Job, onExportCode, onExportMp4 }: Props) 
 
       <button
         type="button"
-        className="rounded-md bg-accent px-3.5 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45"
+        className="btn btn-primary"
         disabled={busy !== null || rendering}
         onClick={() =>
           onExportMp4({
@@ -104,22 +101,18 @@ export function ExportPanel({ busy, mp4Job, onExportCode, onExportMp4 }: Props) 
                   style={{ width: `${Math.round(mp4Job.progress * 100)}%` }}
                 />
               </div>
-              <p className="m-0 text-xs leading-relaxed text-text-dim">
+              <p className="m-0 text-[13px] leading-relaxed text-text-dim">
                 {mp4Job.message} ({Math.round(mp4Job.progress * 100)}%)
               </p>
             </>
           )}
           {mp4Job.status === 'done' && mp4Job.url && (
-            <a
-              className="inline-block rounded-md bg-ok px-3.5 py-2 text-center font-semibold text-white no-underline"
-              href={mp4Job.url}
-              download
-            >
+            <a className="btn btn-primary bg-ok border-ok hover:bg-ok/85" href={mp4Job.url} download>
               Download MP4
             </a>
           )}
           {mp4Job.status === 'error' && (
-            <p className="m-0 text-xs leading-relaxed text-error">{mp4Job.error}</p>
+            <p className="m-0 text-[13px] leading-relaxed text-error">{mp4Job.error}</p>
           )}
         </div>
       )}

@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import type { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent } from 'react';
+import { Pause, Play, Rewind, SkipBack, SkipForward, FastForward } from '@phosphor-icons/react';
 import { PLAYBACK_RATES, type TimelinePlayback } from './useTimelinePlayback';
 import { deriveTimelineTotal, type TimelineClip } from './timelineMath';
 
@@ -118,7 +119,7 @@ export function Timeline({ clips, totalDuration, playback, onDropModel }: Timeli
           role="list"
         >
           {clips.length === 0 && (
-            <span className="absolute inset-0 flex items-center justify-center text-xs text-text-dim">
+            <span className="absolute inset-0 flex items-center justify-center text-[13px] text-text-dim">
               No clips yet — rendered scenes will appear here.
             </span>
           )}
@@ -183,32 +184,31 @@ function TransportBar({
   onStepForward,
   onSetPlaybackRate,
 }: TransportBarProps) {
-  const transportButtonClass =
-    'flex h-6 w-7 items-center justify-center rounded border border-border bg-bg-raised p-0 text-[13px] leading-none text-text cursor-pointer';
+  const transportButtonClass = 'btn-icon h-7 w-7';
 
   return (
     <div className="flex flex-shrink-0 items-center gap-1" role="toolbar" aria-label="Playback controls">
       <button type="button" className={transportButtonClass} onClick={onSkipToStart} aria-label="Skip to start">
-        ⏮
+        <SkipBack size={14} weight="fill" />
       </button>
       <button type="button" className={transportButtonClass} onClick={onStepBack} aria-label="Step back 1 second">
-        ⏪
+        <Rewind size={14} weight="fill" />
       </button>
       <button
         type="button"
-        className={`${transportButtonClass} w-8 border-accent bg-accent text-[#0b0d12]`}
+        className="btn-icon h-7 w-8 border border-accent bg-accent text-white hover:bg-accent-hover hover:border-accent-hover"
         onClick={onTogglePlay}
         aria-label={isPlaying ? 'Pause' : 'Play'}
       >
-        {isPlaying ? '⏸' : '▶'}
+        {isPlaying ? <Pause size={14} weight="fill" /> : <Play size={14} weight="fill" />}
       </button>
       <button type="button" className={transportButtonClass} onClick={onStepForward} aria-label="Step forward 1 second">
-        ⏩
+        <FastForward size={14} weight="fill" />
       </button>
       <button type="button" className={transportButtonClass} onClick={onSkipToEnd} aria-label="Skip to end">
-        ⏭
+        <SkipForward size={14} weight="fill" />
       </button>
-      <span className="ml-1.5 text-[11px] tabular-nums text-text-dim">
+      <span className="ml-1.5 text-[12px] tabular-nums text-text-dim">
         {formatSeconds(currentTime)} / {formatSeconds(total)}
       </span>
       <span className="ml-auto flex gap-0.5" role="group" aria-label="Playback speed">
@@ -216,10 +216,10 @@ function TransportBar({
           <button
             key={rate}
             type="button"
-            className={`rounded border px-1.5 py-0.5 text-[11px] tabular-nums cursor-pointer ${
+            className={`rounded-md border px-1.5 py-0.5 text-[11px] tabular-nums cursor-pointer transition-colors ${
               rate === playbackRate
-                ? 'border-accent bg-accent text-[#0b0d12]'
-                : 'border-border bg-bg-raised text-text-dim'
+                ? 'border-accent bg-accent text-white'
+                : 'border-border bg-bg-raised text-text-dim hover:text-text hover:bg-bg-hover'
             }`}
             onClick={() => onSetPlaybackRate(rate)}
             aria-pressed={rate === playbackRate}

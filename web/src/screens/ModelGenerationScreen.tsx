@@ -75,7 +75,7 @@ export function ModelGenerationScreen({ project }: Props) {
         </section>
         <ResizeHandle direction="vertical" onPointerDown={chatHeight.startDragging} label="Resize chat panel" />
         <section className="flex min-h-0 flex-1 flex-col gap-2 p-3" aria-label="Models & Layers">
-          <h2 className="m-0 flex-shrink-0 text-xs font-semibold uppercase tracking-wider text-text-dim">
+          <h2 className="m-0 flex-shrink-0 text-[11px] font-semibold uppercase tracking-wider text-text-dim">
             Models &amp; Layers
           </h2>
           <div className="min-h-0 flex-1 overflow-y-auto">

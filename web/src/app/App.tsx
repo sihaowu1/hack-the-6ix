@@ -1,4 +1,4 @@
-import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
+import { Link, NavLink, Navigate, Route, Routes } from 'react-router-dom';
 import { useSceneProject } from '../state/useSceneProject';
 import { StatusBar } from './StatusBar';
 import { Logo } from './Logo';
@@ -80,12 +80,12 @@ export function App() {
 
 function TopNav() {
   return (
-    <div className="flex flex-shrink-0 flex-col border-b border-border bg-bg-panel">
-      <div className="flex items-center gap-2 px-3.5 pb-2 pt-3 text-text">
-        <Logo />
-        <span className="text-sm font-semibold tracking-wide">Zendai</span>
-      </div>
-      <nav className="flex gap-1.5 px-3.5 pb-2" aria-label="Screens">
+    <div className="flex flex-shrink-0 items-center gap-5 border-b border-border bg-bg-panel px-4 py-2.5">
+      <Link to="/" className="flex items-center gap-2 text-text no-underline hover:opacity-80">
+        <Logo size={26} />
+        <span className="text-[18px] font-semibold tracking-wide">Zendai</span>
+      </Link>
+      <nav className="flex gap-1" aria-label="Screens">
         <NavLink to="/model" className={navLinkClassName}>
           Model
         </NavLink>
@@ -101,7 +101,7 @@ function TopNav() {
 }
 
 function navLinkClassName({ isActive }: { isActive: boolean }): string {
-  return `rounded px-3 py-1.5 text-[13px] font-semibold no-underline border ${
-    isActive ? 'text-text bg-bg-raised border-border' : 'text-text-dim bg-transparent border-transparent'
+  return `rounded-md px-3 py-1.5 text-[13px] font-medium no-underline transition-colors ${
+    isActive ? 'text-text bg-bg-raised' : 'text-text-dim bg-transparent hover:text-text hover:bg-bg-raised/60'
   }`;
 }

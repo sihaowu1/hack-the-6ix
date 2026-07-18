@@ -1,17 +1,24 @@
 @import 'tailwindcss';
 
 @theme {
-  --color-bg: #0a0a0d;
-  --color-bg-panel: #131316;
-  --color-bg-raised: #1c1c21;
-  --color-border: #2a2a30;
-  --color-text: #eae7e1;
-  --color-text-dim: #8f8c88;
-  --color-accent: #4f8ef7;
+  --color-bg: #0a0a0b;
+  --color-bg-panel: #131315;
+  --color-bg-raised: #19191c;
+  --color-bg-hover: #212124;
+  --color-border: #262629;
+  --color-border-strong: #343438;
+  --color-text: #f2f0ec;
+  --color-text-dim: #9d9a96;
+  --color-text-faint: #67655f;
+  --color-accent: #5b8cf8;
+  --color-accent-hover: #6f9bf9;
+  --color-accent-text: #061021;
   --color-accent-2: #ffb84d;
-  --color-error: #ff5566;
+  --color-error: #ff6470;
   --color-ok: #4ade80;
   --color-warn: #ffb84d;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'SF Mono', ui-monospace, 'JetBrains Mono', Menlo, Consolas, monospace;
 }
 
 * {
@@ -25,6 +32,75 @@ body,
   height: 100%;
   background: var(--color-bg);
   color: var(--color-text);
-  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-  font-size: 14px;
+  font-family: var(--font-sans);
+  font-size: 14.5px;
+  -webkit-font-smoothing: antialiased;
+}
+
+@layer components {
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    border-radius: 0.5rem;
+    padding: 0.5rem 0.9rem;
+    font-size: 13px;
+    font-weight: 500;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease, opacity 0.12s ease;
+    white-space: nowrap;
+  }
+  .btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+  }
+  .btn:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+  }
+  .btn-primary {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    color: white;
+  }
+  .btn-primary:not(:disabled):hover {
+    background: var(--color-accent-hover);
+    border-color: var(--color-accent-hover);
+  }
+  .btn-secondary {
+    background: var(--color-bg-raised);
+    border-color: var(--color-border);
+    color: var(--color-text);
+  }
+  .btn-secondary:not(:disabled):hover {
+    background: var(--color-bg-hover);
+    border-color: var(--color-border-strong);
+  }
+  .btn-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.4rem;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--color-text-dim);
+    cursor: pointer;
+    transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+  }
+  .btn-icon:hover {
+    background: var(--color-bg-hover);
+    color: var(--color-text);
+  }
+  .btn-icon:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+  }
+  .btn-icon[aria-pressed='true'],
+  .btn-icon.active {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    color: white;
+  }
 }
