@@ -7,19 +7,6 @@ AI-powered 3D generation: describe what you want in plain language, and the syst
 ![Hackathon Winner Badge](https://img.shields.io/badge/Hack%20the%206ix-2026-blueviolet)
 ![License Badge](https://img.shields.io/badge/license-MIT-green)
 
-### Landing Page
-![Landing Page](images/landing.png)
-
-### Screenshots
-
-**Model generation:** type a prompt (or upload a reference image) and watch the AI build a component-based Three.js scene in real time — every part is named, tunable, and editable in the built-in code editor
-
-**Image to 3D:** upload a photo of any object and the img2threejs pipeline decomposes it into primitives, extracts PBR materials, and reconstructs it as editable code — not a mesh blob
-
-**Video generation:** animate your models with natural language, compose them on a timeline, and export as MP4 via Remotion
-
-**Export:** push your project to GitHub, download scene code, or export geometry as GLB/OBJ/STL
-
 ---
 
 This document is the developer and operator guide. For the original project story, see the Devpost submission.
