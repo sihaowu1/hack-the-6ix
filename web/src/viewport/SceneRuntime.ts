@@ -124,6 +124,13 @@ export class SceneRuntime {
   private fillVisible = false;
   /** Camera pose the current scene was framed with, restored by `resetCamera`. */
   private homeCamera = { position: new THREE.Vector3(4, 2.6, 5.5), target: new THREE.Vector3(0, 0.8, 0) };
+  /**
+   * Once the user (or the first module CAMERA) has framed the viewport, later
+   * rebuilds — switching models, PARAMS edits, merges — must not yank the
+   * orbit. `homeCamera` still updates so Reset returns to the current scene's
+   * intended framing.
+   */
+  private preserveCamera = false;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -375,6 +382,12 @@ export class SceneRuntime {
   private rebuild(loaded: Array<{ id: string; module: SceneModule }>): void {
     // Spare the reused axes helper from disposal — it's about to be re-added to the fresh scene, not thrown away.
     if (this.axesHelper) this.scene.remove(this.axesHelper);
+
+    // Keep the user's orbit across model switches / PARAMS rebuilds.
+    const keptPosition = this.camera.position.clone();
+    const keptTarget = this.controls.target.clone();
+    const keepOrbit = this.preserveCamera;
+
     disposeScene(this.scene);
     this.scene = new THREE.Scene();
     this.entries = [];
@@ -385,12 +398,6 @@ export class SceneRuntime {
     this.syncAxesHelper();
 
     const primary = loaded[0]?.module;
-    if (primary?.CAMERA?.position) this.camera.position.set(...primary.CAMERA.position);
-    if (primary?.CAMERA?.fov) {
-      this.camera.fov = primary.CAMERA.fov;
-      this.camera.updateProjectionMatrix();
-    }
-    if (primary?.CAMERA?.lookAt) this.controls.target.set(...primary.CAMERA.lookAt);
 
     // Guarantee a writable Color before any module updateScene runs.
     if (!this.scene.background || typeof (this.scene.background as { set?: unknown }).set !== 'function') {
@@ -459,16 +466,38 @@ export class SceneRuntime {
       this.entries.push({ id: p.id, module: p.module, objects: p.objects });
     }
 
+    // Compute the scene's intended home framing (for Reset), without necessarily
+    // applying it to the live camera.
+    if (primary?.CAMERA?.position) {
+      this.homeCamera.position.set(...primary.CAMERA.position);
+    } else {
+      this.homeCamera.position.set(4, 2.6, 5.5);
+    }
+    if (primary?.CAMERA?.lookAt) {
+      this.homeCamera.target.set(...primary.CAMERA.lookAt);
+    } else {
+      this.homeCamera.target.set(0, 0.8, 0);
+    }
     if (placed.length > 1) {
-      this.camera.position.x = 0;
-      this.camera.position.z = Math.max(this.camera.position.z, 5.5 + totalSpan * 0.45);
-      this.controls.target.set(0, 0.8, 0);
+      this.homeCamera.position.x = 0;
+      this.homeCamera.position.z = Math.max(this.homeCamera.position.z, 5.5 + totalSpan * 0.45);
+      this.homeCamera.target.set(0, 0.8, 0);
     }
 
-    // Framing is settled by this point (module CAMERA plus the merge pull-back),
-    // so this is the pose "reset camera" should return to.
-    this.homeCamera.position.copy(this.camera.position);
-    this.homeCamera.target.copy(this.controls.target);
+    if (primary?.CAMERA?.fov) {
+      this.camera.fov = primary.CAMERA.fov;
+      this.camera.updateProjectionMatrix();
+    }
+
+    if (keepOrbit) {
+      this.camera.position.copy(keptPosition);
+      this.controls.target.copy(keptTarget);
+    } else {
+      this.camera.position.copy(this.homeCamera.position);
+      this.controls.target.copy(this.homeCamera.target);
+      this.preserveCamera = true;
+    }
+    this.controls.update();
 
     this.syncHelpers();
   }

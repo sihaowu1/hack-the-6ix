@@ -46,6 +46,7 @@ export async function animateModel(
   prompt: string,
   code: string,
   aspectRatio?: AspectRatio,
+  children?: animationAgent.AnimateChild[],
 ): Promise<GenerationResult> {
   const client = getAnthropicClient();
   if (!client) {
@@ -54,7 +55,7 @@ export async function animateModel(
         'You can still edit the code directly in the editor.',
     );
   }
-  const result = await animationAgent.animateModel(client, prompt, code, { aspectRatio });
+  const result = await animationAgent.animateModel(client, prompt, code, { aspectRatio, children });
   return { ...result, tunables: parseTunables(result.code), source: 'model' };
 }
 

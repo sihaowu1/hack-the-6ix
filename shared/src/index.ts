@@ -5,3 +5,4 @@ export * from './sceneTemplate';
 export * from './layers';
 export * from './animation';
 export * from './fuseModules';
+export * from './videoStitch';

@@ -135,6 +135,26 @@ unrelated parts and PARAMS. Do **not** redesign the model.
 - If the request is ambiguous about which part moves, pick the most obvious
   named part from the current return map and keep the motion minimal.
 
+## Multi-subject scenes (one subject per call)
+
+When a scene has several subjects, a **director** splits the work: you animate
+**one subject at a time**, given only that subject's own module and a brief for
+what it does. The host re-fuses every animated subject into one scene
+deterministically — you never see or edit the other subjects.
+
+- Animate **only the subject in this module**. Do not add, remove, or redesign
+  other models — you can't see them and the host will discard such attempts.
+- **Honor the shared `duration`** you are given verbatim as `ANIMATION.duration`.
+  Every subject in the scene shares one clip length, so a "wave then hand-off"
+  interaction lines up only if all subjects use the same duration and time
+  their keyframes to the same absolute seconds. Use the brief's timing cues
+  (e.g. "start moving at 1s") as absolute `t` values in `[0, duration]`.
+- **Never set or change `CAMERA`.** Framing for the whole scene is handled by a
+  separate camera pass after the subjects are fused; a per-subject `CAMERA`
+  would be wrong for the combined scene and is ignored.
+- Keep part keys as they are in this module. The host namespaces them per
+  subject when fusing, so plain existing names (e.g. `rightArm`) are correct.
+
 ## Worked example 1 — hinge open (normalized progress)
 
 Chest lid opens once over 1.2 seconds. `buildScene` exposes `lidHinge` (pivot

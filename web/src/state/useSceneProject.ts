@@ -451,7 +451,13 @@ export function useSceneProject() {
             : prompt;
 
         // Always animate from the pristine base module (including fused merges).
-        const result = await api.animate(focused, target.code, aspectRatio);
+        // For merges, also send each child's pristine module so the server can
+        // animate every subject in isolation, then re-fuse deterministically.
+        const children =
+          target.children && target.children.length >= 2
+            ? target.children.map((c) => ({ id: c.id, name: c.name, code: c.code }))
+            : undefined;
+        const result = await api.animate(focused, target.code, aspectRatio, children);
         const duration = parseAnimationDuration(result.code) ?? 3;
         const name = parseAnimationName(result.code) ?? nameFromPrompt(prompt, 1);
         const parts = parseAnimationPartNames(result.code);

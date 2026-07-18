@@ -85,11 +85,23 @@ export const generate = (prompt: string, image?: ReferenceImage) =>
 export const modify = (prompt: string, code: string, image?: ReferenceImage) =>
   postJson<GenerationResult>('/api/modify', { prompt, code, ...(image && { image }) });
 
-export const animate = (prompt: string, code: string, aspectRatio?: AspectRatio) =>
+export interface AnimateChild {
+  id: string;
+  name: string;
+  code: string;
+}
+
+export const animate = (
+  prompt: string,
+  code: string,
+  aspectRatio?: AspectRatio,
+  children?: AnimateChild[],
+) =>
   postJson<GenerationResult>('/api/animate', {
     prompt,
     code,
     ...(aspectRatio && { aspectRatio }),
+    ...(children && children.length >= 2 && { children }),
   });
 
 export const fuse = (

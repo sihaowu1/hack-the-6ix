@@ -184,6 +184,22 @@ at the lighthouse like it's towering over everything."*
    deliberately tight, exaggerated low angle is what "towering over" and
    "looking up at" ask for, not a comfortable establishing shot.
 
+## Framing an already-animated / multi-subject scene
+
+You may be called **after** the motion is decided, to frame a scene that already
+has an `ANIMATION` export and (for merges) several subjects fused together.
+
+- **Frame the full span of all subjects.** Compute `C` and `r` from the bounding
+  box around **every** subject in the scene, not one of them, so nobody is
+  clipped as they move. Account for the animation: if a subject swings an arm or
+  strides forward, include the extremal pose in the span you frame.
+- **Do not rewrite the motion.** Preserve `ANIMATION` and `updateScene` exactly;
+  change `CAMERA` (and object placement only if the shot truly requires it).
+- When asked to return **only** a `CAMERA` export (fused merge camera pass),
+  emit a single ```javascript block with exactly
+  `export const CAMERA = { position: [...], lookAt: [...], fov: ... };` and
+  nothing else — the host splices it into the fused module.
+
 ## Output
 
 Open with one short sentence acknowledging the target aspect ratio (per the

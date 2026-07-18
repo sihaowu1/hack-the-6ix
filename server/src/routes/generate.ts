@@ -58,7 +58,23 @@ generateRouter.post('/modify', async (req, res) => {
   }
 });
 
-// Prompt + current code → animation and/or composition (intent-classified).
+function parseAnimateChildren(
+  body: Record<string, unknown>,
+): Array<{ id: string; name: string; code: string }> | undefined {
+  const raw = body?.children;
+  if (!Array.isArray(raw)) return undefined;
+  const children: Array<{ id: string; name: string; code: string }> = [];
+  for (const entry of raw) {
+    const id = String((entry as { id?: unknown })?.id ?? '').trim();
+    const name = String((entry as { name?: unknown })?.name ?? '').trim() || 'Model';
+    const code = String((entry as { code?: unknown })?.code ?? '');
+    if (!id || !code) continue;
+    children.push({ id, name, code });
+  }
+  return children.length >= 2 ? children : undefined;
+}
+
+// Prompt + current code → animation and/or composition (director-planned).
 generateRouter.post('/animate', async (req, res) => {
   const prompt = String(req.body?.prompt ?? '').trim();
   const code = String(req.body?.code ?? '');
@@ -67,8 +83,9 @@ generateRouter.post('/animate', async (req, res) => {
     return;
   }
   const aspectRatio = parseAspectRatio(req.body);
+  const children = parseAnimateChildren(req.body);
   try {
-    res.json(await animateModel(prompt, code, aspectRatio));
+    res.json(await animateModel(prompt, code, aspectRatio, children));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logError('animate', message);
