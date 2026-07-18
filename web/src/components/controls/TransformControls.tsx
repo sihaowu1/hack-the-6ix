@@ -5,6 +5,8 @@ import { SliderControl } from './SliderControl';
 
 interface Props {
   handle: ObjectHandle;
+  /** Section heading — "Position" for a clicked model, "Camera" for the camera editor. Defaults to "Position". */
+  label?: string;
 }
 
 const AXES: Array<{ key: keyof ObjectTransform; label: string; min: number; max: number; step: number }> = [
@@ -21,7 +23,7 @@ const AXES: Array<{ key: keyof ObjectTransform; label: string; min: number; max:
  * generated code, or the AI agent, unlike the PARAMS-driven sliders in
  * `ControlsPanel` rendered alongside it.
  */
-export function TransformControls({ handle }: Props) {
+export function TransformControls({ handle, label = 'Position' }: Props) {
   const [transform, setTransform] = useState<ObjectTransform>(() => handle.getTransform());
 
   // A new click (even on the same object) hands us a new handle — resync the
@@ -39,7 +41,7 @@ export function TransformControls({ handle }: Props) {
   return (
     <section className="flex flex-col gap-2.5 rounded-lg border border-border bg-bg-raised p-3">
       <h2 className="m-0 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-text-dim">
-        Position
+        {label}
       </h2>
       {AXES.map((axis) => {
         const param: TunableParam = {

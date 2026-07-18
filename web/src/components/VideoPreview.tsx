@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import type { TunableParam } from '@motionforge/shared';
 import { ControlsFloater } from './controls/ControlsFloater';
 import type { ParamChange } from './controls/ControlsPanel';
 import type { Mp4JobState } from '../state/useSceneProject';
 import type { ObjectHandle } from '../viewport/SceneRuntime';
-import { Viewport } from '../viewport/Viewport';
+import { Viewport, type ViewportHandle } from '../viewport/Viewport';
 
 interface Props {
   job: Mp4JobState | null;
@@ -25,18 +25,27 @@ interface Props {
  * as the Model Generation screen (click the model to open its
  * sliders/switches). Shared between the Video Generation and Export screens
  * so both show the exact same "resulting video" surface.
+ *
+ * Forwards a `ViewportHandle` so callers outside the click-to-edit flow (e.g.
+ * the Video screen's "Camera" button) can reach the live camera directly.
  */
-export function VideoPreview({
-  job,
-  code,
-  tunables,
-  onParamChange,
-  modelName,
-  enableClickFloater = true,
-  time,
-}: Props) {
+export const VideoPreview = forwardRef<ViewportHandle, Props>(function VideoPreview(
+  { job, code, tunables, onParamChange, modelName, enableClickFloater = true, time },
+  ref,
+) {
   const [selection, setSelection] = useState<{ anchor: { x: number; y: number }; handle: ObjectHandle } | null>(
     null,
+  );
+  const viewportRef = useRef<ViewportHandle>(null);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      getCameraHandle: () => viewportRef.current?.getCameraHandle() ?? null,
+      clearCameraOverride: () => viewportRef.current?.clearCameraOverride(),
+      setAxesVisible: (visible) => viewportRef.current?.setAxesVisible(visible),
+    }),
+    [],
   );
 
   // A different model becoming active, or its code changing underneath the
@@ -68,6 +77,7 @@ export function VideoPreview({
   return (
     <div className="relative h-full w-full">
       <Viewport
+        ref={viewportRef}
         code={code}
         onModelClick={enableClickFloater ? (anchor, handle) => setSelection({ anchor, handle }) : undefined}
         time={time}
@@ -95,4 +105,4 @@ export function VideoPreview({
       )}
     </div>
   );
-}
+});

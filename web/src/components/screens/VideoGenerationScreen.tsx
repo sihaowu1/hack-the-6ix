@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { ASPECT_RATIOS, type AspectRatio, type TunableParam } from '@motionforge/shared';
+import { ControlsFloater } from '../controls/ControlsFloater';
 import type { ParamChange } from '../controls/ControlsPanel';
 import { AspectRatioBox } from '../layout/AspectRatioBox';
 import { ResizeHandle } from '../layout/ResizeHandle';
@@ -9,6 +10,8 @@ import { MODEL_DRAG_TYPE, Timeline } from '../timeline/Timeline';
 import type { TimelineClip } from '../timeline/timelineMath';
 import type { TimelinePlayback } from '../timeline/useTimelinePlayback';
 import type { Mp4JobState, SceneModel } from '../../state/useSceneProject';
+import type { ObjectHandle } from '../../viewport/SceneRuntime';
+import type { ViewportHandle } from '../../viewport/Viewport';
 import { VideoPreview } from '../VideoPreview';
 
 export interface VideoGenerationScreenProps {
@@ -96,6 +99,30 @@ export function VideoGenerationScreen({
   chat,
 }: VideoGenerationScreenProps) {
   const [isDropTarget, setIsDropTarget] = useState(false);
+  const videoPreviewRef = useRef<ViewportHandle>(null);
+  const [cameraEditor, setCameraEditor] = useState<{ anchor: { x: number; y: number }; handle: ObjectHandle } | null>(
+    null,
+  );
+  const [axesVisible, setAxesVisible] = useState(false);
+
+  const closeCameraEditor = () => {
+    videoPreviewRef.current?.clearCameraOverride();
+    setCameraEditor(null);
+  };
+
+  // The scene under the playhead changed (different clip, AI modify) — the
+  // camera the editor was pointed at may no longer reflect what's on screen.
+  useEffect(() => {
+    setCameraEditor(null);
+  }, [previewCode]);
+
+  // Re-applies the toggle whenever the live viewport (re)mounts — e.g. the
+  // timeline going from empty to occupied swaps in a fresh `Viewport`/
+  // `SceneRuntime` that starts with axes hidden. A code edit alone doesn't
+  // need this: `SceneRuntime` re-adds its own axes helper across rebuilds.
+  useEffect(() => {
+    videoPreviewRef.current?.setAxesVisible(axesVisible);
+  }, [axesVisible, previewCode]);
 
   const chatWidth = useResizable({
     direction: 'horizontal',
@@ -146,7 +173,19 @@ export function VideoGenerationScreen({
         <Pane
           title="Resulting Video"
           bodyClassName="overflow-hidden p-0"
-          actions={<AspectRatioSelect value={aspectRatio} onChange={onAspectRatioChange} />}
+          actions={
+            <div className="flex items-center gap-1.5">
+              <CameraAngleButton
+                disabled={!previewCode}
+                onOpen={(anchor) => {
+                  const handle = videoPreviewRef.current?.getCameraHandle();
+                  if (handle) setCameraEditor({ anchor, handle });
+                }}
+              />
+              <AxesToggleButton pressed={axesVisible} onToggle={() => setAxesVisible((v) => !v)} />
+              <AspectRatioSelect value={aspectRatio} onChange={onAspectRatioChange} />
+            </div>
+          }
         >
           <div
             className={`relative h-full w-full shadow-[inset_0_0_0_0_var(--color-accent)] transition-shadow duration-100 ${
@@ -169,6 +208,7 @@ export function VideoGenerationScreen({
           >
             <AspectRatioBox ratio={aspectRatioValue(aspectRatio)}>
               <VideoPreview
+                ref={videoPreviewRef}
                 job={mp4Job}
                 code={previewCode}
                 tunables={tunables}
@@ -177,6 +217,18 @@ export function VideoGenerationScreen({
                 time={previewTime}
               />
             </AspectRatioBox>
+            {cameraEditor && (
+              <ControlsFloater
+                anchor={cameraEditor.anchor}
+                title="Camera"
+                objectHandle={cameraEditor.handle}
+                transformLabel="Camera"
+                showTunables={false}
+                tunables={[]}
+                onChange={() => {}}
+                onClose={closeCameraEditor}
+              />
+            )}
             {isDropTarget && (
               <div
                 className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[rgba(10,10,11,0.65)] text-[13px] font-semibold text-text"
@@ -297,6 +349,51 @@ function AspectRatioSelect({
         </option>
       ))}
     </select>
+  );
+}
+
+/**
+ * Button shown next to the aspect-ratio dropdown that opens the camera's
+ * x/y/z position + angle editor (the same `TransformControls` used for a
+ * clicked model, aimed at the live camera instead — see `SceneRuntime.getCameraHandle`).
+ */
+function CameraAngleButton({
+  disabled,
+  onOpen,
+}: {
+  disabled: boolean;
+  onOpen: (anchor: { x: number; y: number }) => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="rounded border border-border bg-bg px-1.5 py-0.5 text-[11px] font-medium normal-case tracking-normal text-text disabled:cursor-not-allowed disabled:opacity-40 hover:not-disabled:bg-bg-raised"
+      disabled={disabled}
+      onClick={(event) => {
+        const rect = event.currentTarget.getBoundingClientRect();
+        onOpen({ x: rect.left + rect.width / 2, y: rect.bottom });
+      }}
+    >
+      Camera
+    </button>
+  );
+}
+
+/** Toggles the red/green/blue X/Y/Z reference axes at the scene origin in the live preview (see `SceneRuntime.setAxesVisible`). */
+function AxesToggleButton({ pressed, onToggle }: { pressed: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      className={`rounded border px-1.5 py-0.5 text-[11px] font-medium normal-case tracking-normal transition-colors ${
+        pressed
+          ? 'border-accent bg-accent text-white'
+          : 'border-border bg-bg text-text hover:bg-bg-raised'
+      }`}
+      aria-pressed={pressed}
+      onClick={onToggle}
+    >
+      Axes
+    </button>
   );
 }
 

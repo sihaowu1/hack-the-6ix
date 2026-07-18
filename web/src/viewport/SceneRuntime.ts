@@ -54,6 +54,19 @@ export class SceneRuntime {
    * on are disposed then.
    */
   private transformOverrides = new Map<THREE.Object3D, ObjectTransform>();
+  /**
+   * Manual camera position/yaw override set via the "Camera" editor. Unlike
+   * `transformOverrides`, this must be re-applied *after* `controls.update()`
+   * every frame — `OrbitControls` recomputes the camera's position/orientation
+   * from its own internal spherical state and target on every call, which
+   * would otherwise stomp a direct `camera.position`/`camera.rotation` write.
+   * `controls.enabled` is turned off while this is set so a mouse drag over
+   * the canvas can't fight the sliders, and restored on `clearCameraOverride`.
+   */
+  private cameraOverride: ObjectTransform | null = null;
+  /** Toggled by the "Axes" button — persists across `setCode` rebuilds (the helper is re-added to each fresh `THREE.Scene`), reset only when a new `SceneRuntime` is constructed. */
+  private axesVisible = false;
+  private axesHelper: THREE.AxesHelper | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -160,10 +173,70 @@ export class SceneRuntime {
     object.rotation.y = THREE.MathUtils.degToRad(transform.angle);
   }
 
+  /** Handle for the "Camera" editor — mirrors `ObjectHandle` so the same `TransformControls` UI works for both. */
+  getCameraHandle(): ObjectHandle {
+    return {
+      getTransform: () => this.getCameraTransform(),
+      setTransform: (transform) => this.setCameraTransform(transform),
+    };
+  }
+
+  /** Hands manual camera control back to `OrbitControls`, e.g. when the camera editor popover closes. */
+  clearCameraOverride(): void {
+    this.cameraOverride = null;
+    this.controls.enabled = true;
+  }
+
+  private getCameraTransform(): ObjectTransform {
+    return {
+      x: this.camera.position.x,
+      y: this.camera.position.y,
+      z: this.camera.position.z,
+      angle: THREE.MathUtils.radToDeg(this.camera.rotation.y),
+    };
+  }
+
+  private setCameraTransform(transform: ObjectTransform): void {
+    this.cameraOverride = transform;
+    this.controls.enabled = false;
+    this.applyCameraOverride();
+  }
+
+  private applyCameraOverride(): void {
+    const transform = this.cameraOverride;
+    if (!transform) return;
+    this.camera.position.set(transform.x, transform.y, transform.z);
+    this.camera.rotation.set(0, THREE.MathUtils.degToRad(transform.angle), 0);
+  }
+
+  /** Shows/hides the red/green/blue X/Y/Z reference axes at the scene origin. */
+  setAxesVisible(visible: boolean): void {
+    this.axesVisible = visible;
+    this.syncAxesHelper();
+  }
+
+  getAxesVisible(): boolean {
+    return this.axesVisible;
+  }
+
+  /** Re-adds the (single, reused) helper to whatever the current `this.scene` is — needed after every rebuild, since `disposeScene`/reassignment discards the previous scene's children. */
+  private syncAxesHelper(): void {
+    if (!this.axesVisible) {
+      if (this.axesHelper) this.scene.remove(this.axesHelper);
+      return;
+    }
+    if (!this.axesHelper) this.axesHelper = new THREE.AxesHelper(10);
+    if (this.axesHelper.parent !== this.scene) this.scene.add(this.axesHelper);
+  }
+
   private rebuild(): void {
+    // Spare the reused axes helper from disposal — it's about to be re-added to the fresh scene, not thrown away.
+    if (this.axesHelper) this.scene.remove(this.axesHelper);
     disposeScene(this.scene);
     this.scene = new THREE.Scene();
     this.transformOverrides.clear();
+    this.clearCameraOverride();
+    this.syncAxesHelper();
     const module = this.module;
     if (!module) return;
     const camera = module.CAMERA;
@@ -205,6 +278,10 @@ export class SceneRuntime {
       object.rotation.y = THREE.MathUtils.degToRad(transform.angle);
     }
     this.controls.update();
+    // Applied after controls.update() (not folded into the transformOverrides
+    // loop above), since that call would otherwise overwrite our direct
+    // camera position/rotation write with its own target-relative one.
+    this.applyCameraOverride();
     this.renderer.render(this.scene, this.camera);
     this.raf = requestAnimationFrame(this.loop);
   }

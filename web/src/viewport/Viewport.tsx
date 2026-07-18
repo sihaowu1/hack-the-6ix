@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { SceneRuntime, type ObjectHandle } from './SceneRuntime';
 
 interface Props {
@@ -17,11 +17,18 @@ interface Props {
   time?: number;
 }
 
+/** Imperative escape hatch for callers that need the camera outside the click-to-edit flow (e.g. the "Camera" button). */
+export interface ViewportHandle {
+  getCameraHandle: () => ObjectHandle | null;
+  clearCameraOverride: () => void;
+  setAxesVisible: (visible: boolean) => void;
+}
+
 /**
  * The WebGL preview panel. Debounces code changes (typing, slider drags, AI
  * output) and hot-reloads them into the SceneRuntime.
  */
-export function Viewport({ code, onModelClick, time }: Props) {
+export const Viewport = forwardRef<ViewportHandle, Props>(function Viewport({ code, onModelClick, time }, ref) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const runtimeRef = useRef<SceneRuntime | null>(null);
@@ -30,6 +37,16 @@ export function Viewport({ code, onModelClick, time }: Props) {
   // handler without needing to recreate the runtime when it changes.
   const onModelClickRef = useRef(onModelClick);
   onModelClickRef.current = onModelClick;
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      getCameraHandle: () => runtimeRef.current?.getCameraHandle() ?? null,
+      clearCameraOverride: () => runtimeRef.current?.clearCameraOverride(),
+      setAxesVisible: (visible) => runtimeRef.current?.setAxesVisible(visible),
+    }),
+    [],
+  );
 
   useEffect(() => {
     if (!canvasRef.current || !containerRef.current) return;
@@ -72,4 +89,4 @@ export function Viewport({ code, onModelClick, time }: Props) {
       )}
     </div>
   );
-}
+});
