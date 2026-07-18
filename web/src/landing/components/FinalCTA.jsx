@@ -1,4 +1,5 @@
 import React from "react";
+import { Link } from "react-router-dom";
 import { ArrowUpRight } from "lucide-react";
 
 export default function FinalCTA() {
@@ -21,13 +22,13 @@ export default function FinalCTA() {
           </p>
 
           <div className="mt-10">
-            <a
-              href="/app"
+            <Link
+              to="/model"
               className="group inline-flex items-center gap-2 rounded-md bg-white px-6 py-3.5 text-sm font-medium text-inkwell transition-all duration-300 hover:bg-royal-blue hover:text-white hover:rounded-xl"
             >
               Get Started
               <ArrowUpRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-            </a>
+            </Link>
           </div>
         </div>
       </div>

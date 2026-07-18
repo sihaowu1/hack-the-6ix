@@ -1,8 +1,10 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { App } from './app/App';
-import Home from '@/pages/Home';
+import { AuthRoot } from './auth/useAuth';
+import { AuthTokenBridge } from './auth/AuthTokenBridge';
+import Home from './landing/Home';
 import './landing.css';
 import './styles.css';
 
@@ -11,12 +13,14 @@ createRoot(document.getElementById('root')!).render(
     <BrowserRouter>
       <AuthRoot>
         <AuthTokenBridge />
-        <App />
+        <Routes>
+          <Route path="/" element={<Home />} />
+          {/* Landing CTAs historically pointed at /app — send them into the studio. */}
+          <Route path="/app" element={<Navigate to="/model" replace />} />
+          <Route path="/app/*" element={<Navigate to="/model" replace />} />
+          <Route path="/*" element={<App />} />
+        </Routes>
       </AuthRoot>
-      <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/app" element={<App />} />
-      </Routes>
     </BrowserRouter>
   </React.StrictMode>,
 );

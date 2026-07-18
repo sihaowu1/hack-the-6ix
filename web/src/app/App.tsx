@@ -5,19 +5,18 @@ import { StatusBar } from './StatusBar';
 import { ModelGenerationScreen } from '../screens/ModelGenerationScreen';
 import { VideoGenerationScreen } from '../screens/VideoGenerationScreen';
 import { ExportScreen } from '../screens/ExportScreen';
-import { LandingPage } from '../screens/LandingPage';
 import { ChatPanel } from '../chat/ChatPanel';
 import { useAuth } from '../auth/useAuth';
 
 /**
- * Router shell.
+ * Studio router shell (mounted under `/*` from `main.tsx`).
  *
- * `useSceneProject` lives here so both screens share one state instance —
- * per SPEC.md Issue 4, Materials/Video panes must read the same data source
- * as the Model screen's list, or the two screens will drift out of sync.
+ * The marketing landing lives at `/` (`web/src/landing/Home.jsx`). This shell owns
+ * `/model`, `/video`, and `/export`. `useSceneProject` lives here so both
+ * screens share one state instance — per SPEC.md Issue 4.
  *
- * Auth is optional: `/model`, `/video`, and `/export` stay public. Sign-in
- * unlocks GitHub-linked features; logout returns to the public landing page.
+ * Auth is optional: studio routes stay public. Sign-in unlocks GitHub-linked
+ * features; logout returns to the public landing page.
  */
 export function App() {
   const project = useSceneProject();
@@ -27,7 +26,6 @@ export function App() {
       <TopNav />
       <div style={styles.outlet}>
         <Routes>
-          <Route path="/" element={<LandingPage />} />
           <Route path="/model" element={<ModelGenerationScreen project={project} />} />
           <Route
             path="/video"
@@ -64,7 +62,7 @@ export function App() {
               />
             }
           />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<Navigate to="/model" replace />} />
         </Routes>
       </div>
       <StatusBar busy={project.busy} status={project.status} />

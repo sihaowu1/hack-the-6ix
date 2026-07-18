@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { Play, ArrowUpRight, Box, Layers, Clapperboard, Settings2, Download, Sparkles } from "lucide-react";
 
 const PROMPT_TEXT = "A windswept dune field at dusk, low poly terrain, sharp shadows";
@@ -57,13 +58,13 @@ export default function Hero() {
             </p>
 
             <div className="mt-9 flex flex-wrap items-center gap-3">
-              <a
-                href="/app"
+              <Link
+                to="/model"
                 className="inline-flex items-center gap-2 rounded-md bg-inkwell px-5 py-3 text-sm font-medium text-white transition-all duration-300 hover:bg-royal-blue hover:rounded-xl"
               >
                 Get Started
                 <ArrowUpRight className="h-4 w-4" />
-              </a>
+              </Link>
               <a
                 href="#workflow"
                 className="inline-flex items-center gap-2 rounded-md border hairline border-slate-300 px-5 py-3 text-sm font-medium text-inkwell transition-all duration-300 hover:border-inkwell hover:bg-slate-50"

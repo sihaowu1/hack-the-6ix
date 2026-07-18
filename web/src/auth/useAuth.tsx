@@ -52,7 +52,8 @@ function Auth0Bridge({ children }: { children: ReactNode }) {
   );
 
   const logout = useCallback(() => {
-    auth0Logout({ logoutParams: { returnTo: window.location.origin } });
+    // Must match Auth0 Allowed Logout URLs (`http://localhost:5173/`).
+    auth0Logout({ logoutParams: { returnTo: `${window.location.origin}/` } });
   }, [auth0Logout]);
 
   const getAccessToken = useCallback(async () => {
@@ -95,7 +96,8 @@ export function AuthRoot({ children }: { children: ReactNode }) {
       domain={auth0Config.domain}
       clientId={auth0Config.clientId}
       authorizationParams={{
-        redirect_uri: window.location.origin,
+        // Trailing slash matches Auth0 Allowed Callback URLs (`http://localhost:5173/`).
+        redirect_uri: `${window.location.origin}/`,
         ...(auth0Config.audience ? { audience: auth0Config.audience } : {}),
       }}
       cacheLocation="localstorage"

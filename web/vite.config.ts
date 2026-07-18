@@ -10,19 +10,14 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react(), tailwindcss()],
-    resolve: {
-      alias: {
-        '@': path.resolve(__dirname, '../src'),
-      },
-    },
+    // Repo-root `.env` holds VITE_AUTH0_* alongside server secrets.
+    envDir: repoRoot,
     optimizeDeps: {
-      include: ['lucide-react', 'react', 'react-dom', 'react-router-dom'],
+      include: ['lucide-react', 'react', 'react-dom', 'react-router-dom', '@auth0/auth0-react'],
     },
     server: {
       port: 5173,
-      fs: {
-        allow: [repoRoot],
-      },
+      strictPort: true,
       proxy: {
         '/api': serverUrl,
         '/renders': serverUrl,
