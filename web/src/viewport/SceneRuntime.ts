@@ -18,6 +18,21 @@ interface LoadedEntry {
 const MERGE_SPACING = 4;
 
 /**
+ * Wrap a PARAMS object so undefined/NaN numeric reads fall back to 0, preventing
+ * NaN geometry from AI-generated code that references missing param keys.
+ */
+function safeguardParams(params: Record<string, unknown>): Record<string, unknown> {
+  return new Proxy(params, {
+    get(target, prop, receiver) {
+      const value = Reflect.get(target, prop, receiver);
+      if (value === undefined || value === null) return 0;
+      if (typeof value === 'number' && !Number.isFinite(value)) return 0;
+      return value;
+    },
+  });
+}
+
+/**
  * Live WebGL preview runtime. The editor's code string is hot-loaded as a real
  * ES module (Blob URL import), then buildScene/updateScene run against a
  * Three.js renderer with orbit controls. Any code change rebuilds the scene.
@@ -192,10 +207,11 @@ export class SceneRuntime {
       const backgroundBefore = this.scene.background;
 
       try {
+        const safeParams = safeguardParams(module.PARAMS);
         const objects = module.buildScene({
           THREE,
           scene: this.scene,
-          params: module.PARAMS,
+          params: safeParams,
         });
 
         const added = this.scene.children.filter((child) => !before.has(child));
@@ -263,7 +279,7 @@ export class SceneRuntime {
           THREE,
           scene: this.scene,
           objects: entry.objects,
-          params: entry.module.PARAMS,
+          params: safeguardParams(entry.module.PARAMS),
           time,
         });
       } catch (err) {

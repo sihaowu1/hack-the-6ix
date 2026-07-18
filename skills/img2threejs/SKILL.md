@@ -116,6 +116,11 @@ For image reconstructions, include tunables that let users adjust:
 - Metalness/roughness of key surfaces
 - Lighting intensity and direction
 
+**Critical:** Every value used in geometry constructors MUST come from a defined PARAMS
+key or a literal number. Never use arithmetic expressions that could produce NaN
+(e.g. division by a param that could be 0, or referencing a param that doesn't exist).
+All geometry dimensions must be positive finite numbers.
+
 ## Modify Mode
 
 When given existing code plus a change request, return the complete updated
