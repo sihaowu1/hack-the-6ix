@@ -4,7 +4,7 @@ import type { MarketplaceItemDetail } from '@motionforge/shared';
 import { getMarketplaceItem } from '../../api/client';
 import { Viewport } from '../../viewport/Viewport';
 import { exportSceneAs, type ModelFormat } from '../../viewport/exportScene';
-import { Button } from '../ui/Button';
+import { Button, IconButton } from '../ui/Button';
 import { PANEL_HEADER } from '../ui/Panel';
 
 /** Build an LLM-ready prompt that bundles the scene code with integration instructions. */
@@ -54,6 +54,7 @@ export function MarketplaceDetailScreen() {
   const [error, setError] = useState('');
   const [copied, setCopied] = useState<string | null>(null);
   const [exportBusy, setExportBusy] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -98,6 +99,28 @@ export function MarketplaceDetailScreen() {
   if (loading) return <main className={containerClassName}><p className="text-[14px] text-text-dim">Loading…</p></main>;
   if (error && !item) return <main className={containerClassName}><p className="text-[14px] text-red-400">{error}</p></main>;
   if (!item) return <main className={containerClassName}><p className="text-[14px] text-text-dim">Not found.</p></main>;
+
+  // Fullscreen viewport overlay
+  if (expanded) {
+    return (
+      <div className="fixed inset-0 z-50 flex flex-col bg-black">
+        <div className="flex items-center justify-between border-b border-white/10 bg-bg-panel px-4 py-2.5">
+          <span className="text-[14px] font-semibold text-text">{item.title}</span>
+          <IconButton
+            onClick={() => setExpanded(false)}
+            title="Close fullscreen"
+            aria-label="Close fullscreen"
+            className="h-8 w-8"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </IconButton>
+        </div>
+        <div className="flex-1 min-h-0">
+          <Viewport code={item.code} showToolbar />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <main className={containerClassName}>
@@ -151,9 +174,19 @@ export function MarketplaceDetailScreen() {
           </div>
         </div>
 
-        {/* Right: viewport */}
-        <div className="min-h-[280px] overflow-hidden rounded-lg bg-black">
+        {/* Right: viewport with fullscreen button */}
+        <div className="relative min-h-[280px] overflow-hidden rounded-lg bg-black">
           <Viewport code={item.code} />
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            title="View fullscreen"
+            aria-label="View fullscreen"
+            className="absolute bottom-3 right-3 flex cursor-pointer items-center gap-1.5 rounded-md border border-white/20 bg-white/15 px-2.5 py-1.5 text-[12px] font-medium text-white backdrop-blur-sm transition-colors hover:bg-white/25"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+            Fullscreen
+          </button>
         </div>
       </div>
 

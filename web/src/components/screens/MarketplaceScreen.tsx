@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { MarketplaceItemSummary } from '@motionforge/shared';
 import { getMarketplace } from '../../api/client';
+import { Viewport } from '../../viewport/Viewport';
 import { Button } from '../ui/Button';
 
 export function MarketplaceScreen() {
@@ -39,6 +40,10 @@ export function MarketplaceScreen() {
                 to={`/marketplace/${item.id}`}
                 className="flex flex-col gap-2 rounded-lg border border-border bg-bg-panel p-4 text-inherit no-underline transition-colors hover:border-border-strong hover:bg-bg-raised"
               >
+                {/* Live 3D preview */}
+                <div className="pointer-events-none h-[160px] w-full overflow-hidden rounded-md bg-black">
+                  <Viewport code={item.code} interactive={false} />
+                </div>
                 <h3 className="m-0 text-[18px] font-semibold text-text">{item.title}</h3>
                 <p className="m-0 flex-1 text-[14px] text-text-dim">{item.description || 'No description'}</p>
                 <div className="flex items-center gap-2 text-[13px] text-text-dim">

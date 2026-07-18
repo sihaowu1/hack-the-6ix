@@ -25,6 +25,8 @@ interface Props {
   time?: number;
   /** Shows the grid/lighting/camera toolbar. Off for read-only previews. */
   showToolbar?: boolean;
+  /** When false, disables orbit controls so the preview is view-only. Default true. */
+  interactive?: boolean;
 }
 
 /** Imperative escape hatch for callers that need the camera outside the click-to-edit flow (e.g. the "Camera" button). */
@@ -39,7 +41,7 @@ export interface ViewportHandle {
  * output) and hot-reloads them into the SceneRuntime.
  */
 export const Viewport = forwardRef<ViewportHandle, Props>(function Viewport(
-  { code, scenes, onModelClick, time, showToolbar = false },
+  { code, scenes, onModelClick, time, showToolbar = false, interactive = true },
   ref,
 ) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -82,6 +84,7 @@ export const Viewport = forwardRef<ViewportHandle, Props>(function Viewport(
     const runtime = new SceneRuntime(canvasRef.current);
     runtime.onError = (err) => setError(err.message);
     runtime.onObjectClick = (point, handle) => onModelClickRef.current?.(point, handle);
+    if (!interactive) runtime.setControlsEnabled(false);
     runtimeRef.current = runtime;
     const observer = new ResizeObserver(([entry]) => {
       runtime.resize(entry.contentRect.width, entry.contentRect.height);

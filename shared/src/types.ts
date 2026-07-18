@@ -103,19 +103,18 @@ export interface GenerationResult {
 
 // ─── Marketplace ────────────────────────────────────────────────────────────
 
-/** Summary returned in the paginated marketplace list (no code). */
+/** Summary returned in the paginated marketplace list. */
 export interface MarketplaceItemSummary {
   id: string;
   title: string;
   description: string;
+  code: string;
   creator: { name: string; picture?: string };
   publishedAt: string;
 }
 
 /** Full item detail including source code. */
-export interface MarketplaceItemDetail extends MarketplaceItemSummary {
-  code: string;
-}
+export interface MarketplaceItemDetail extends MarketplaceItemSummary {}
 
 /** Body sent to POST /api/marketplace/publish. */
 export interface PublishRequest {

@@ -270,6 +270,11 @@ export class SceneRuntime {
     };
   }
 
+  /** Enable or disable orbit controls entirely (e.g. for non-interactive previews). */
+  setControlsEnabled(enabled: boolean): void {
+    this.controls.enabled = enabled;
+  }
+
   /** Hands manual camera control back to `OrbitControls`, e.g. when the camera editor popover closes. */
   clearCameraOverride(): void {
     this.cameraOverride = null;

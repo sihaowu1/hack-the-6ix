@@ -50,7 +50,6 @@ marketplaceRouter.get('/marketplace', requireMongo, (async (_req, res) => {
     .sort({ publishedAt: -1 })
     .skip(skip)
     .limit(limit)
-    .select('-code')
     .lean();
 
   const total = await MarketplaceItem.countDocuments();
@@ -59,6 +58,7 @@ marketplaceRouter.get('/marketplace', requireMongo, (async (_req, res) => {
     id: String(item._id),
     title: item.title,
     description: item.description,
+    code: item.code,
     creator: { name: item.creator.name, picture: item.creator.picture },
     publishedAt: item.publishedAt.toISOString(),
   }));
