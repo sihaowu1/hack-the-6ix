@@ -1,4 +1,6 @@
 import type { TunableParam } from '@motionforge/shared';
+import { RequireAuth } from '../../auth/RequireAuth';
+import { useAuth } from '../../auth/useAuth';
 import type { ParamChange } from '../controls/ControlsPanel';
 import { ResizeHandle } from '../layout/ResizeHandle';
 import { useResizable } from '../layout/useResizable';
@@ -70,6 +72,7 @@ export function ExportScreen({
   previewTime,
   previewModelName,
 }: ExportScreenProps) {
+  const { configured, login } = useAuth();
   const leftWidth = useResizable({
     direction: 'horizontal',
     initial: 340,
@@ -111,17 +114,36 @@ export function ExportScreen({
             Export to GitHub
           </h2>
           <p className="m-0 text-[13px] leading-relaxed text-text-dim">
-            Push the generated project straight to a GitHub repository.
+            Push the generated project straight to a GitHub repository. Sign-in
+            is optional for everything else — only needed here.
           </p>
-          <input
-            type="text"
-            className="rounded-md border border-border bg-bg px-2.5 py-1.5 text-[13px] text-text placeholder:text-text-faint focus:border-accent focus:outline-none"
-            placeholder="owner/repo"
-            disabled
-          />
-          <button type="button" className="btn btn-primary" disabled>
-            Push to GitHub
-          </button>
+          <RequireAuth
+            fallback={
+              configured ? (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => void login({ screenHint: 'login' })}
+                >
+                  Log in to push to GitHub
+                </button>
+              ) : (
+                <p className="m-0 text-[13px] leading-relaxed text-text-dim">
+                  Configure Auth0 (`VITE_AUTH0_*`) to enable GitHub sign-in.
+                </p>
+              )
+            }
+          >
+            <input
+              type="text"
+              className="rounded-md border border-border bg-bg px-2.5 py-1.5 text-[13px] text-text placeholder:text-text-faint focus:border-accent focus:outline-none"
+              placeholder="owner/repo"
+              disabled
+            />
+            <button type="button" className="btn btn-primary" disabled>
+              Push to GitHub
+            </button>
+          </RequireAuth>
         </section>
       </div>
       <ResizeHandle direction="horizontal" onPointerDown={leftWidth.startDragging} label="Resize export options" />

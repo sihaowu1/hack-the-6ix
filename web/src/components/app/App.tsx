@@ -6,17 +6,17 @@ import { ModelGenerationScreen } from '../screens/ModelGenerationScreen';
 import { VideoGenerationScreen } from '../screens/VideoGenerationScreen';
 import { ExportScreen } from '../screens/ExportScreen';
 import { ChatPanel } from '../ChatPanel';
+import { useAuth } from '../../auth/useAuth';
 
 /**
- * Router shell.
+ * Studio router shell (mounted under `/*` from `main.tsx`).
  *
- * `useSceneProject` lives here so both screens share one state instance —
- * per SPEC.md Issue 4, Materials/Video panes must read the same data source
- * as the Model screen's list, or the two screens will drift out of sync.
+ * The marketing landing lives at `/` (`web/src/landing/Home.jsx`). This shell owns
+ * `/model`, `/video`, and `/export`. `useSceneProject` lives here so both
+ * screens share one state instance — per SPEC.md Issue 4.
  *
- * Each screen owns its own chat (`ChatPanel`, with scrollback) rather than a
- * single global prompt bar, so there's no top-level `PromptBar` mounted here
- * anymore — see `PromptBar.tsx`'s doc comment.
+ * Auth is optional: studio routes stay public. Sign-in unlocks GitHub-linked
+ * features; logout returns to the public landing page.
  */
 export function App() {
   const project = useSceneProject();
@@ -26,7 +26,6 @@ export function App() {
       <TopNav />
       <div className="flex min-h-0 flex-1 flex-col">
         <Routes>
-          <Route path="/" element={<Navigate to="/model" replace />} />
           <Route path="/model" element={<ModelGenerationScreen project={project} />} />
           <Route
             path="/video"
@@ -79,6 +78,8 @@ export function App() {
 }
 
 function TopNav() {
+  const { configured, isAuthenticated, isLoading, login, logout, user } = useAuth();
+
   return (
     <div className="flex flex-shrink-0 items-center gap-5 border-b border-border bg-bg-panel px-4 py-2.5">
       <Link to="/" className="flex items-center gap-2 text-text no-underline hover:opacity-80">
@@ -96,6 +97,21 @@ function TopNav() {
           Export
         </NavLink>
       </nav>
+      <div className="flex-1" />
+      {configured && !isLoading && (
+        isAuthenticated ? (
+          <div className="flex items-center gap-2.5">
+            {user?.name && <span className="text-[13px] text-text-dim">{user.name}</span>}
+            <button type="button" className="btn btn-secondary" onClick={logout}>
+              Log out
+            </button>
+          </div>
+        ) : (
+          <button type="button" className="btn btn-secondary" onClick={() => void login({ screenHint: 'login' })}>
+            Log in
+          </button>
+        )
+      )}
     </div>
   );
 }

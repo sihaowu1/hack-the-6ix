@@ -7,6 +7,10 @@
     "maxTokens": 16000,
     "maxAgentIterations": 8
   },
+  "auth0": {
+    "domain": "",
+    "audience": ""
+  },
   "blender": {
     "enabled": false,
     "mcp": {
