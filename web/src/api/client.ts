@@ -1,4 +1,4 @@
-import type { GenerationResult, MarketplaceItemDetail, MarketplaceItemSummary, PublishRequest, ReferenceImage, RenderSettings } from '@motionforge/shared';
+import type { ChatIntent, GenerationResult, IntentModelContext, MarketplaceItemDetail, MarketplaceItemSummary, PublishRequest, ReferenceImage, RenderSettings, SceneSpec } from '@motionforge/shared';
 
 /** Thin typed client for the Zendai server API (proxied through Vite). */
 
@@ -82,11 +82,45 @@ async function postJson<T>(path: string, body: unknown, options?: { requireAuth?
   return response.json() as Promise<T>;
 }
 
+export const classifyIntent = (
+  prompt: string,
+  models: IntentModelContext[],
+  activeModelId?: string,
+) => postJson<ChatIntent>('/api/intent', { prompt, models, activeModelId });
+
 export const generate = (prompt: string, image?: ReferenceImage) =>
   postJson<GenerationResult>('/api/generate', { prompt, ...(image && { image }) });
 
-export const modify = (prompt: string, code: string, blenderCode: string, image?: ReferenceImage) =>
-  postJson<GenerationResult>('/api/modify', { prompt, code, blenderCode, ...(image && { image }) });
+export const modify = (
+  prompt: string,
+  code: string,
+  blenderCode: string,
+  image?: ReferenceImage,
+  spec?: SceneSpec,
+) =>
+  postJson<GenerationResult>('/api/modify', {
+    prompt,
+    code,
+    blenderCode,
+    ...(image && { image }),
+    ...(spec && { spec }),
+  });
+
+export interface CritiqueRequest {
+  prompt: string;
+  code: string;
+  views: Array<{ label: string; base64: string }>;
+  image?: ReferenceImage;
+  spec?: SceneSpec;
+  iteration: number;
+}
+
+export type CritiqueResponse =
+  | { action: 'continue'; reason?: string }
+  | { action: 'revise'; code: string; reason: string; tunables?: GenerationResult['tunables'] };
+
+export const critique = (body: CritiqueRequest) =>
+  postJson<CritiqueResponse>('/api/critique', body);
 
 export const animate = (prompt: string, code: string, blenderCode: string) =>
   postJson<GenerationResult>('/api/animate', { prompt, code, blenderCode });
