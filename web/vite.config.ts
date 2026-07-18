@@ -13,6 +13,8 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    // Repo-root `.env` holds VITE_AUTH0_* alongside server secrets.
+    envDir: repoRoot,
     server: {
       port: 5173,
       proxy: {

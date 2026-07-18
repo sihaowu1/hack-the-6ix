@@ -22,6 +22,22 @@ export interface Mp4JobResponse {
   error?: string;
 }
 
+type AccessTokenGetter = () => Promise<string | undefined>;
+
+let accessTokenGetter: AccessTokenGetter | null = null;
+
+/** Wired by `AuthTokenBridge` when the user is signed in. */
+export function setAccessTokenGetter(getter: AccessTokenGetter | null): void {
+  accessTokenGetter = getter;
+}
+
+async function authHeaders(): Promise<Record<string, string>> {
+  if (!accessTokenGetter) return {};
+  const token = await accessTokenGetter();
+  if (!token) return {};
+  return { Authorization: `Bearer ${token}` };
+}
+
 async function parseError(response: Response): Promise<Error> {
   let message = `${response.status} ${response.statusText}`;
   try {
@@ -34,7 +50,7 @@ async function parseError(response: Response): Promise<Error> {
 }
 
 async function getJson<T>(path: string): Promise<T> {
-  const response = await fetch(path);
+  const response = await fetch(path, { headers: await authHeaders() });
   if (!response.ok) throw await parseError(response);
   return response.json() as Promise<T>;
 }
@@ -42,7 +58,10 @@ async function getJson<T>(path: string): Promise<T> {
 async function postJson<T>(path: string, body: unknown): Promise<T> {
   const response = await fetch(path, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(await authHeaders()),
+    },
     body: JSON.stringify(body),
   });
   if (!response.ok) throw await parseError(response);
@@ -72,7 +91,10 @@ export const getMp4Job = (jobId: string) =>
 export async function exportCodeZip(code: string, blenderCode: string): Promise<Blob> {
   const response = await fetch('/api/export/code', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(await authHeaders()),
+    },
     body: JSON.stringify({ code, blenderCode }),
   });
   if (!response.ok) throw await parseError(response);
