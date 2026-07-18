@@ -88,6 +88,9 @@ export const generate = (prompt: string, image?: ReferenceImage) =>
 export const modify = (prompt: string, code: string, blenderCode: string, image?: ReferenceImage) =>
   postJson<GenerationResult>('/api/modify', { prompt, code, blenderCode, ...(image && { image }) });
 
+export const animate = (prompt: string, code: string, blenderCode: string) =>
+  postJson<GenerationResult>('/api/animate', { prompt, code, blenderCode });
+
 export const getBlenderStatus = () => getJson<BlenderStatus>('/api/blender/status');
 
 export const blenderSync = (code: string) =>
