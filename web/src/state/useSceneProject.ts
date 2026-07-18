@@ -3,6 +3,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import {
   DEFAULT_ASPECT_RATIO,
   DEFAULT_SCENE_CODE,
+  applyCameraSpec,
   deleteLayer as deleteLayerInCode,
   fuseSceneModules,
   fuseSlugs,
@@ -14,6 +15,7 @@ import {
   patchParam,
   renameLayer as renameLayerInCode,
   type AspectRatio,
+  type CameraSpec,
   type FuseModuleInput,
   type ReferenceImage,
   type RenderSettings,
@@ -199,6 +201,8 @@ export function useSceneProject() {
   const [status, setStatus] = useState<Status | null>(null);
   const [mp4Job, setMp4Job] = useState<Mp4JobState | null>(null);
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(DEFAULT_ASPECT_RATIO);
+  /** Live orbit on Video/Export — animation playback and MP4 export use this, not module CAMERA. */
+  const [userCamera, setUserCamera] = useState<CameraSpec | null>(null);
   const pollRef = useRef<number | null>(null);
 
   const activeModel = useMemo(
@@ -835,7 +839,8 @@ export function useSceneProject() {
   const exportMp4 = useCallback(
     (settings: RenderSettings) =>
       run('Starting MP4 render…', async () => {
-        const { jobId } = await api.startMp4Export(code, settings);
+        const renderCode = userCamera ? applyCameraSpec(code, userCamera) : code;
+        const { jobId } = await api.startMp4Export(renderCode, settings);
         setMp4Job({ id: jobId, status: 'running', progress: 0, message: 'Queued' });
         const renderModelId = activeModelId;
         const renderModelName = activeModel.name;
@@ -878,7 +883,7 @@ export function useSceneProject() {
           }
         }, 2000);
       }),
-    [run, code, activeModelId, activeModel.name],
+    [run, code, activeModelId, activeModel.name, userCamera],
   );
 
   const resetToDefault = useCallback(() => {
@@ -980,6 +985,8 @@ export function useSceneProject() {
     setAspectRatio,
     exportCode,
     exportMp4,
+    userCamera,
+    setUserCamera,
     replaceFromRemote,
     resetToDefault,
   };

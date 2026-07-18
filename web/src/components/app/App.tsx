@@ -63,6 +63,8 @@ export function App() {
                 hasClipboardClip={project.hasClipboardClip}
                 onResizeClip={project.resizeClip}
                 onMoveClip={project.moveClip}
+                userCamera={project.userCamera}
+                onUserCameraChange={project.setUserCamera}
                 chat={
                   <ChatPanel
                     busy={project.busy}
@@ -72,8 +74,8 @@ export function App() {
                     showModify={false}
                     allowImageAttachment={false}
                     generateLabel="Animate"
-                    placeholder="Describe motion or framing for the selected model…"
-                    emptyHint="Select a model or merge in Materials — Animate always targets that selection."
+                    placeholder="Describe motion for the selected model…"
+                    emptyHint="Select a model or merge in Materials — Animate always targets that selection. Orbit the preview to frame the shot."
                   />
                 }
               />
@@ -103,6 +105,8 @@ export function App() {
                 previewTime={project.previewTime}
                 previewTrackOverlays={project.previewTrackOverlays}
                 previewModelName={project.previewModelName}
+                userCamera={project.userCamera}
+                onUserCameraChange={project.setUserCamera}
                 onGitHubUnlink={project.resetToDefault}
                 onGitHubPull={project.replaceFromRemote}
               />

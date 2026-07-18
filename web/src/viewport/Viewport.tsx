@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { ArrowsClockwise, GridFour, Lightbulb } from '@phosphor-icons/react';
+import type { CameraSpec } from '@motionforge/shared';
 import { SceneRuntime, type ObjectHandle, type SceneEntry } from './SceneRuntime';
 import type { TrackOverlay } from './trackOverlay';
 import { IconButton } from '../components/ui/Button';
@@ -29,13 +30,16 @@ interface Props {
   trackOverlays?: TrackOverlay[];
   /** Shows the grid/lighting/camera toolbar. Off for read-only previews. */
   showToolbar?: boolean;
+  /** Persisted user orbit; when set, applied after the scene loads. */
+  userCamera?: CameraSpec | null;
+  /** Fired when the user finishes orbiting/panning/zooming. */
+  onUserCameraChange?: (camera: CameraSpec) => void;
 }
 
-/** Imperative escape hatch for callers that need the camera outside the click-to-edit flow (e.g. the "Camera" button). */
+/** Imperative escape hatch for axes toggle and reading the live orbit for MP4 export. */
 export interface ViewportHandle {
-  getCameraHandle: () => ObjectHandle | null;
-  clearCameraOverride: () => void;
   setAxesVisible: (visible: boolean) => void;
+  getCameraSpec: () => CameraSpec | null;
 }
 
 /**
@@ -43,7 +47,7 @@ export interface ViewportHandle {
  * output) and hot-reloads them into the SceneRuntime.
  */
 export const Viewport = forwardRef<ViewportHandle, Props>(function Viewport(
-  { code, scenes, onModelClick, time, trackOverlays, showToolbar = false },
+  { code, scenes, onModelClick, time, trackOverlays, showToolbar = false, userCamera, onUserCameraChange },
   ref,
 ) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -56,13 +60,16 @@ export const Viewport = forwardRef<ViewportHandle, Props>(function Viewport(
   // handler without needing to recreate the runtime when it changes.
   const onModelClickRef = useRef(onModelClick);
   onModelClickRef.current = onModelClick;
+  const onUserCameraChangeRef = useRef(onUserCameraChange);
+  onUserCameraChangeRef.current = onUserCameraChange;
+  const userCameraRef = useRef(userCamera);
+  userCameraRef.current = userCamera;
 
   useImperativeHandle(
     ref,
     () => ({
-      getCameraHandle: () => runtimeRef.current?.getCameraHandle() ?? null,
-      clearCameraOverride: () => runtimeRef.current?.clearCameraOverride(),
       setAxesVisible: (visible) => runtimeRef.current?.setAxesVisible(visible),
+      getCameraSpec: () => runtimeRef.current?.getCameraSpec() ?? null,
     }),
     [],
   );
@@ -86,6 +93,7 @@ export const Viewport = forwardRef<ViewportHandle, Props>(function Viewport(
     const runtime = new SceneRuntime(canvasRef.current);
     runtime.onError = (err) => setError(err.message);
     runtime.onObjectClick = (point, handle) => onModelClickRef.current?.(point, handle);
+    runtime.onCameraChange = (spec) => onUserCameraChangeRef.current?.(spec);
     runtimeRef.current = runtime;
     const observer = new ResizeObserver(([entry]) => {
       runtime.resize(entry.contentRect.width, entry.contentRect.height);
@@ -103,6 +111,10 @@ export const Viewport = forwardRef<ViewportHandle, Props>(function Viewport(
       setError(null);
       runtimeRef.current
         ?.setScenes(resolvedScenesRef.current)
+        .then(() => {
+          const cam = userCameraRef.current;
+          if (cam) runtimeRef.current?.setUserCamera(cam);
+        })
         .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
     }, 250);
     return () => window.clearTimeout(handle);
@@ -115,6 +127,11 @@ export const Viewport = forwardRef<ViewportHandle, Props>(function Viewport(
   useEffect(() => {
     runtimeRef.current?.setTrackOverlays(trackOverlays ?? []);
   }, [trackOverlays]);
+
+  // Re-apply a restored orbit when navigating between Video/Export screens.
+  useEffect(() => {
+    if (userCamera) runtimeRef.current?.setUserCamera(userCamera);
+  }, [userCamera]);
 
   // The runtime holds these across rebuilds, so each effect only has to push
   // the change; `rebuild` re-applies whatever it was last told.

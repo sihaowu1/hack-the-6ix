@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import type { RenderSettings, TunableParam } from '@motionforge/shared';
+import type { CameraSpec, RenderSettings, TunableParam } from '@motionforge/shared';
 import { RequireAuth } from '../../auth/RequireAuth';
 import { useAuth } from '../../auth/useAuth';
 import { PublishForm } from '../PublishForm';
@@ -60,6 +60,9 @@ export interface ExportScreenProps {
   previewTrackOverlays: TrackOverlay[];
   /** Display name for whatever's under the playhead (from `useSceneProject.previewModelName`). */
   previewModelName: string;
+  /** Live orbit pose shared with the Video screen. */
+  userCamera: CameraSpec | null;
+  onUserCameraChange: (camera: CameraSpec) => void;
   /** Reset local models when the GitHub repo is unlinked. */
   onGitHubUnlink: () => void;
   /** Apply models pulled from the linked GitHub repo. */
@@ -117,6 +120,8 @@ export function ExportScreen({
   previewTime,
   previewTrackOverlays,
   previewModelName,
+  userCamera,
+  onUserCameraChange,
   onGitHubUnlink,
   onGitHubPull,
 }: ExportScreenProps) {
@@ -535,6 +540,8 @@ export function ExportScreen({
               enableClickFloater={false}
               time={previewTime}
               trackOverlays={previewTrackOverlays}
+              userCamera={userCamera}
+              onUserCameraChange={onUserCameraChange}
             />
           </div>
         </div>

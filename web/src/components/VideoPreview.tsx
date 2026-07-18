@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
-import type { TunableParam } from '@motionforge/shared';
+import type { CameraSpec, TunableParam } from '@motionforge/shared';
 import { ControlsFloater } from './controls/ControlsFloater';
 import type { ParamChange } from './controls/ControlsPanel';
 import type { Mp4JobState } from '../state/useSceneProject';
@@ -22,6 +22,9 @@ interface Props {
   time?: number;
   /** Host-side part tracks for multi-clip NLE playback. */
   trackOverlays?: TrackOverlay[];
+  /** Persisted orbit pose; when set, overrides module CAMERA for the live preview. */
+  userCamera?: CameraSpec | null;
+  onUserCameraChange?: (camera: CameraSpec) => void;
 }
 
 /**
@@ -31,11 +34,23 @@ interface Props {
  * sliders/switches). Shared between the Video Generation and Export screens
  * so both show the exact same "resulting video" surface.
  *
- * Forwards a `ViewportHandle` so callers outside the click-to-edit flow (e.g.
- * the Video screen's "Camera" button) can reach the live camera directly.
+ * Framing follows the user's orbit (`userCamera`); module `CAMERA` is only a
+ * starting hint until the user moves the view.
  */
 export const VideoPreview = forwardRef<ViewportHandle, Props>(function VideoPreview(
-  { job, code, scenes, tunables, onParamChange, modelName, enableClickFloater = true, time, trackOverlays },
+  {
+    job,
+    code,
+    scenes,
+    tunables,
+    onParamChange,
+    modelName,
+    enableClickFloater = true,
+    time,
+    trackOverlays,
+    userCamera,
+    onUserCameraChange,
+  },
   ref,
 ) {
   const [selection, setSelection] = useState<{ anchor: { x: number; y: number }; handle: ObjectHandle } | null>(
@@ -46,9 +61,8 @@ export const VideoPreview = forwardRef<ViewportHandle, Props>(function VideoPrev
   useImperativeHandle(
     ref,
     () => ({
-      getCameraHandle: () => viewportRef.current?.getCameraHandle() ?? null,
-      clearCameraOverride: () => viewportRef.current?.clearCameraOverride(),
       setAxesVisible: (visible) => viewportRef.current?.setAxesVisible(visible),
+      getCameraSpec: () => viewportRef.current?.getCameraSpec() ?? null,
     }),
     [],
   );
@@ -89,6 +103,8 @@ export const VideoPreview = forwardRef<ViewportHandle, Props>(function VideoPrev
         onModelClick={enableClickFloater ? (anchor, handle) => setSelection({ anchor, handle }) : undefined}
         time={time}
         trackOverlays={trackOverlays}
+        userCamera={userCamera}
+        onUserCameraChange={onUserCameraChange}
       />
       {job?.status === 'running' && (
         <div className={badgeClass}>Rendering… {Math.round((job.progress ?? 0) * 100)}%</div>

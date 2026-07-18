@@ -5,7 +5,7 @@ import { SliderControl } from './SliderControl';
 
 interface Props {
   handle: ObjectHandle;
-  /** Section heading — "Position" for a clicked model, "Camera" for the camera editor. Defaults to "Position". */
+  /** Section heading — defaults to "Position". */
   label?: string;
 }
 
@@ -27,8 +27,7 @@ const AXES: Array<{
 
 /**
  * Position (x/y/z) and rotation (left/right yaw, up/down pitch) sliders for
- * whichever object was clicked in the viewport — or, via `ControlsFloater`'s
- * "Camera" mode, the live camera itself. Reads/writes go straight through
+ * whichever object was clicked in the viewport. Reads/writes go straight through
  * `ObjectHandle` to the live `THREE.Object3D` in `SceneRuntime` — this never
  * touches PARAMS, generated code, or the AI agent, unlike the PARAMS-driven
  * sliders in `ControlsPanel` rendered alongside it.

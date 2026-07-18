@@ -1,10 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import {
-  extractCameraLiteral,
   fuseSlugs,
   parseAnimationTracks,
   patchParam,
-  replaceCameraLiteral,
   stitchMergeAnimation,
   validateSceneModule,
   type AspectRatio,
@@ -19,8 +17,9 @@ import { verifyAnimatedModule, type AnimationIssue } from './verifyAnimation';
  * Video agent: a small multi-agent pipeline.
  *
  *   Director (JSON plan) → N animation agents (one per subject, parallel)
- *     → deterministic stitch → verify + fix → Camera (composition), when needed.
+ *     → deterministic stitch → verify + fix
  *
+ * Framing is the user's live orbit in the editor — this agent never rewrites CAMERA.
  * Single models are the degenerate case: one subject ("self"), no stitch.
  * Merges send their pristine child modules so each subject is animated in
  * isolation, then re-fused deterministically (no LLM rewrites the wrapper).
@@ -314,71 +313,6 @@ async function runAnimation(
   );
 }
 
-// ─── Camera agent (composition) ──────────────────────────────────────────────
-
-function compositionPrompt(brief: string, code: string, aspectRatio?: AspectRatio): string {
-  const ratioLine = aspectRatio
-    ? `Target preview aspect ratio: ${aspectRatio}. Use it when adjusting CAMERA / blocking.\n\n`
-    : '';
-  return (
-    `${ratioLine}` +
-    `Reframe / reblock the current Three.js model. Do not invent time-based animation and ` +
-    `preserve any existing ANIMATION export unchanged.\n\n` +
-    `Composition instruction: ${brief}\n\n` +
-    `Current scene module:\n\`\`\`javascript\n${code}\n\`\`\`\n\n` +
-    'Update CAMERA (position/lookAt/fov); change object placement only if required for the shot. ' +
-    'Return the complete updated ```javascript block.'
-  );
-}
-
-async function runComposition(
-  client: Anthropic,
-  brief: string,
-  code: string,
-  aspectRatio?: AspectRatio,
-): Promise<ModelCode> {
-  return completeModule(client, loadSkill('camera-composition'), compositionPrompt(brief, code, aspectRatio));
-}
-
-/**
- * Camera pass for a fused merge: the module is large and host-owned, so we only
- * ask for a CAMERA literal and splice it in deterministically — never letting
- * the LLM rewrite the fused wrapper or its stitched animation.
- */
-async function runMergeCamera(
-  client: Anthropic,
-  brief: string,
-  fusedCode: string,
-  aspectRatio?: AspectRatio,
-): Promise<string | null> {
-  const ratioLine = aspectRatio ? `Target preview aspect ratio: ${aspectRatio}.\n\n` : '';
-  const messages: Anthropic.MessageParam[] = [
-    {
-      role: 'user',
-      content:
-        `${ratioLine}Choose the camera for this multi-subject scene. Do NOT rewrite the module or its animation.\n\n` +
-        `Composition instruction: ${brief}\n\n` +
-        `Current fused scene module:\n\`\`\`javascript\n${fusedCode}\n\`\`\`\n\n` +
-        'Return ONLY a single ```javascript block containing exactly one ' +
-        '`export const CAMERA = { position: [x, y, z], lookAt: [x, y, z], fov: n };` and nothing else.',
-    },
-  ];
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const response = await complete(client, loadSkill('camera-composition'), messages);
-    const text = textOf(response);
-    const blocks = extractFencedBlocks(text);
-    const js = blocks.find((block) => JS_LANGS.has(block.lang));
-    const literal = js ? extractCameraLiteral(js.code) : null;
-    if (literal) return literal;
-    messages.push({ role: 'assistant', content: response.content as Anthropic.MessageParam['content'] });
-    messages.push({
-      role: 'user',
-      content: 'Return a single ```javascript block with exactly `export const CAMERA = { ... };`.',
-    });
-  }
-  return null;
-}
-
 // ─── Verify + fix ────────────────────────────────────────────────────────────
 
 interface SingleFixContext {
@@ -586,13 +520,19 @@ export async function animateModel(
 
   const plan = await planVideo(client, prompt, subjects, runId);
 
+  // Framing is the user's live orbit in the editor — never rewrite CAMERA.
   if (plan.mode === 'composition') {
-    const result = await runComposition(client, plan.cameraBrief ?? prompt, code, aspectRatio);
-    logJson(`animate:${runId}:done`, { runId, stage: 'done', mode: plan.mode, elapsedMs: Date.now() - startedAt });
-    return result;
+    logJson(`animate:${runId}:done`, {
+      runId,
+      stage: 'done',
+      mode: plan.mode,
+      skipped: 'composition-uses-user-camera',
+      elapsedMs: Date.now() - startedAt,
+    });
+    return { code };
   }
 
-  // Animation (and possibly camera): animate each subject in isolation.
+  // Animation: animate each subject in isolation.
   let animatedCode: string;
   let fixContext: FixContext;
 
@@ -651,28 +591,12 @@ export async function animateModel(
 
   animatedCode = await verifyAndFix(client, animatedCode, plan.duration, fixContext, runId);
 
-  if (plan.mode === 'animation') {
-    logJson(`animate:${runId}:done`, { runId, stage: 'done', mode: plan.mode, elapsedMs: Date.now() - startedAt });
-    return { code: animatedCode };
-  }
-
-  // mode === 'both' → camera pass.
-  const cameraBrief = plan.cameraBrief ?? prompt;
-  if (isMerge) {
-    const literal = await runMergeCamera(client, cameraBrief, animatedCode, aspectRatio);
-    const finalCode = literal ? replaceCameraLiteral(animatedCode, literal) : animatedCode;
-    logJson(`animate:${runId}:camera`, {
-      runId,
-      stage: 'camera',
-      merge: true,
-      spliced: Boolean(literal),
-    });
-    logJson(`animate:${runId}:done`, { runId, stage: 'done', mode: plan.mode, elapsedMs: Date.now() - startedAt });
-    return { code: finalCode };
-  }
-
-  const result = await runComposition(client, cameraBrief, animatedCode, aspectRatio);
-  logJson(`animate:${runId}:camera`, { runId, stage: 'camera', merge: false, spliced: true });
-  logJson(`animate:${runId}:done`, { runId, stage: 'done', mode: plan.mode, elapsedMs: Date.now() - startedAt });
-  return result;
+  logJson(`animate:${runId}:done`, {
+    runId,
+    stage: 'done',
+    mode: plan.mode === 'both' ? 'animation' : plan.mode,
+    skippedCamera: plan.mode === 'both',
+    elapsedMs: Date.now() - startedAt,
+  });
+  return { code: animatedCode };
 }

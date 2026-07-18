@@ -143,3 +143,36 @@ export function replaceCameraLiteral(code: string, literal: string): string {
   if (!range) return code;
   return code.slice(0, range.start) + literal + code.slice(range.end);
 }
+
+/** Format a CameraSpec as a `{ ... }` object literal for `replaceCameraLiteral`. */
+export function formatCameraLiteral(spec: {
+  position?: [number, number, number];
+  lookAt?: [number, number, number];
+  fov?: number;
+}): string {
+  const position = spec.position ?? [4, 2.6, 5.5];
+  const lookAt = spec.lookAt ?? [0, 0.8, 0];
+  const fov = spec.fov ?? 45;
+  const fmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(4).replace(/\.?0+$/, ''));
+  return (
+    `{ position: [${position.map(fmt).join(', ')}], lookAt: [${lookAt.map(fmt).join(', ')}], fov: ${fmt(fov)} }`
+  );
+}
+
+/**
+ * Splice `spec` into the module's CAMERA export. Inserts a CAMERA export after
+ * PARAMS when the module has none.
+ */
+export function applyCameraSpec(
+  code: string,
+  spec: { position?: [number, number, number]; lookAt?: [number, number, number]; fov?: number },
+): string {
+  const literal = formatCameraLiteral(spec);
+  const range = balancedObjectRange(code, 'CAMERA');
+  if (range) return code.slice(0, range.start) + literal + code.slice(range.end);
+  const paramsRange = balancedObjectRange(code, 'PARAMS');
+  if (!paramsRange) return code;
+  let at = paramsRange.end;
+  if (code[at] === ';') at += 1;
+  return code.slice(0, at) + `\n\nexport const CAMERA = ${literal};` + code.slice(at);
+}

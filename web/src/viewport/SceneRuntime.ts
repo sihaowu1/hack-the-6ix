@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { validateSceneModule, type SceneModule } from '@motionforge/shared';
+import { validateSceneModule, type CameraSpec, type SceneModule } from '@motionforge/shared';
 import { applyTrackOverlays, type TrackOverlay } from './trackOverlay';
 
 /** A clicked object's position (units), left/right yaw (`angle`, Y-axis) and up/down pitch (`pitch`, X-axis), both in degrees. */
@@ -105,16 +105,6 @@ export class SceneRuntime {
    * on are disposed then.
    */
   private transformOverrides = new Map<THREE.Object3D, ObjectTransform>();
-  /**
-   * Manual camera position/yaw override set via the "Camera" editor. Unlike
-   * `transformOverrides`, this must be re-applied *after* `controls.update()`
-   * every frame — `OrbitControls` recomputes the camera's position/orientation
-   * from its own internal spherical state and target on every call, which
-   * would otherwise stomp a direct `camera.position`/`camera.rotation` write.
-   * `controls.enabled` is turned off while this is set so a mouse drag over
-   * the canvas can't fight the sliders, and restored on `clearCameraOverride`.
-   */
-  private cameraOverride: ObjectTransform | null = null;
   /** Toggled by the "Axes" button — persists across `setCode` rebuilds (the helper is re-added to each fresh `THREE.Scene`), reset only when a new `SceneRuntime` is constructed. */
   private axesVisible = false;
   private axesHelper: THREE.AxesHelper | null = null;
@@ -123,7 +113,7 @@ export class SceneRuntime {
   private gridVisible = false;
   private fillVisible = false;
   /** Camera pose the current scene was framed with, restored by `resetCamera`. */
-  private homeCamera = { position: new THREE.Vector3(4, 2.6, 5.5), target: new THREE.Vector3(0, 0.8, 0) };
+  private homeCamera = { position: new THREE.Vector3(4, 2.6, 5.5), target: new THREE.Vector3(0, 0.8, 0), fov: 45 };
   /**
    * Once the user (or the first module CAMERA) has framed the viewport, later
    * rebuilds — switching models, PARAMS edits, merges — must not yank the
@@ -131,6 +121,8 @@ export class SceneRuntime {
    * intended framing.
    */
   private preserveCamera = false;
+  /** Fired when the user finishes an orbit/pan/zoom gesture. */
+  onCameraChange: ((spec: CameraSpec) => void) | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -148,6 +140,7 @@ export class SceneRuntime {
     this.raf = requestAnimationFrame(this.loop);
     canvas.addEventListener('pointerdown', this.handlePointerDown);
     canvas.addEventListener('pointerup', this.handlePointerUp);
+    this.controls.addEventListener('end', this.handleControlsEnd);
   }
 
   async setCode(code: string): Promise<void> {
@@ -205,8 +198,40 @@ export class SceneRuntime {
   resetCamera(): void {
     this.camera.position.copy(this.homeCamera.position);
     this.controls.target.copy(this.homeCamera.target);
+    this.camera.fov = this.homeCamera.fov;
+    this.camera.updateProjectionMatrix();
+    this.controls.update();
+    this.onCameraChange?.(this.getCameraSpec());
+  }
+
+  /** Current orbit pose (position / lookAt / fov) for persistence and MP4 export. */
+  getCameraSpec(): CameraSpec {
+    return {
+      position: [this.camera.position.x, this.camera.position.y, this.camera.position.z],
+      lookAt: [this.controls.target.x, this.controls.target.y, this.controls.target.z],
+      fov: this.camera.fov,
+    };
+  }
+
+  /**
+   * Apply a persisted user orbit. Marks the viewport as user-framed so later
+   * module rebuilds (animation swaps, PARAMS) keep this pose instead of module CAMERA.
+   */
+  setUserCamera(spec: CameraSpec): void {
+    if (spec.position) this.camera.position.set(...spec.position);
+    if (spec.lookAt) this.controls.target.set(...spec.lookAt);
+    if (spec.fov !== undefined) {
+      this.camera.fov = spec.fov;
+      this.camera.updateProjectionMatrix();
+    }
+    this.preserveCamera = true;
     this.controls.update();
   }
+
+  private handleControlsEnd = (): void => {
+    this.preserveCamera = true;
+    this.onCameraChange?.(this.getCameraSpec());
+  };
 
   resize(width: number, height: number): void {
     if (width === 0 || height === 0) return;
@@ -219,6 +244,7 @@ export class SceneRuntime {
     cancelAnimationFrame(this.raf);
     this.canvas.removeEventListener('pointerdown', this.handlePointerDown);
     this.canvas.removeEventListener('pointerup', this.handlePointerUp);
+    this.controls.removeEventListener('end', this.handleControlsEnd);
     this.controls.dispose();
     disposeScene(this.scene);
     this.renderer.dispose();
@@ -318,47 +344,6 @@ export class SceneRuntime {
     object.rotation.set(THREE.MathUtils.degToRad(transform.pitch), THREE.MathUtils.degToRad(transform.angle), 0);
   }
 
-  /** Handle for the "Camera" editor — mirrors `ObjectHandle` so the same `TransformControls` UI works for both. */
-  getCameraHandle(): ObjectHandle {
-    return {
-      getTransform: () => this.getCameraTransform(),
-      setTransform: (transform) => this.setCameraTransform(transform),
-    };
-  }
-
-  /** Hands manual camera control back to `OrbitControls`, e.g. when the camera editor popover closes. */
-  clearCameraOverride(): void {
-    this.cameraOverride = null;
-    this.controls.enabled = true;
-  }
-
-  private getCameraTransform(): ObjectTransform {
-    return {
-      x: this.camera.position.x,
-      y: this.camera.position.y,
-      z: this.camera.position.z,
-      angle: THREE.MathUtils.radToDeg(this.camera.rotation.y),
-      pitch: THREE.MathUtils.radToDeg(this.camera.rotation.x),
-    };
-  }
-
-  private setCameraTransform(transform: ObjectTransform): void {
-    this.cameraOverride = transform;
-    this.controls.enabled = false;
-    this.applyCameraOverride();
-  }
-
-  private applyCameraOverride(): void {
-    const transform = this.cameraOverride;
-    if (!transform) return;
-    this.camera.position.set(transform.x, transform.y, transform.z);
-    this.camera.rotation.set(
-      THREE.MathUtils.degToRad(transform.pitch),
-      THREE.MathUtils.degToRad(transform.angle),
-      0,
-    );
-  }
-
   /** Shows/hides the red/green/blue X/Y/Z reference axes at the scene origin. */
   setAxesVisible(visible: boolean): void {
     this.axesVisible = visible;
@@ -394,7 +379,6 @@ export class SceneRuntime {
     this.grid = null;
     this.fillLights = null;
     this.transformOverrides.clear();
-    this.clearCameraOverride();
     this.syncAxesHelper();
 
     const primary = loaded[0]?.module;
@@ -478,15 +462,11 @@ export class SceneRuntime {
     } else {
       this.homeCamera.target.set(0, 0.8, 0);
     }
+    this.homeCamera.fov = primary?.CAMERA?.fov ?? 45;
     if (placed.length > 1) {
       this.homeCamera.position.x = 0;
       this.homeCamera.position.z = Math.max(this.homeCamera.position.z, 5.5 + totalSpan * 0.45);
       this.homeCamera.target.set(0, 0.8, 0);
-    }
-
-    if (primary?.CAMERA?.fov) {
-      this.camera.fov = primary.CAMERA.fov;
-      this.camera.updateProjectionMatrix();
     }
 
     if (keepOrbit) {
@@ -495,6 +475,8 @@ export class SceneRuntime {
     } else {
       this.camera.position.copy(this.homeCamera.position);
       this.controls.target.copy(this.homeCamera.target);
+      this.camera.fov = this.homeCamera.fov;
+      this.camera.updateProjectionMatrix();
       this.preserveCamera = true;
     }
     this.controls.update();
@@ -568,10 +550,6 @@ export class SceneRuntime {
       object.rotation.set(THREE.MathUtils.degToRad(transform.pitch), THREE.MathUtils.degToRad(transform.angle), 0);
     }
     this.controls.update();
-    // Applied after controls.update() (not folded into the transformOverrides
-    // loop above), since that call would otherwise overwrite our direct
-    // camera position/rotation write with its own target-relative one.
-    this.applyCameraOverride();
     this.renderer.render(this.scene, this.camera);
     this.raf = requestAnimationFrame(this.loop);
   }
