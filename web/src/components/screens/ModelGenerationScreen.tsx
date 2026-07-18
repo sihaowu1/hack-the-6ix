@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { ChatPanel } from '../chat/ChatPanel';
+import { ChatPanel } from '../ChatPanel';
 import { ControlsFloater } from '../controls/ControlsFloater';
 import { ResizeHandle } from '../layout/ResizeHandle';
 import { useResizable } from '../layout/useResizable';
-import { ModelsLayersList } from '../models/ModelsLayersList';
-import type { useSceneProject } from '../state/useSceneProject';
-import { Viewport } from '../viewport/Viewport';
+import { ModelsLayersList } from '../ModelsLayersList';
+import type { useSceneProject } from '../../state/useSceneProject';
+import { Viewport } from '../../viewport/Viewport';
 
 interface Props {
   project: ReturnType<typeof useSceneProject>;

@@ -1,4 +1,4 @@
-import type { Status } from '../state/useSceneProject';
+import type { Status } from '../../state/useSceneProject';
 
 interface Props {
   busy: string | null;

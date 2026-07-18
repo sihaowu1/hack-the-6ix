@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { TunableParam } from '@motionforge/shared';
-import { ControlsFloater } from '../controls/ControlsFloater';
-import type { ParamChange } from '../controls/ControlsPanel';
+import { ControlsFloater } from './controls/ControlsFloater';
+import type { ParamChange } from './controls/ControlsPanel';
 import type { Mp4JobState } from '../state/useSceneProject';
 import { Viewport } from '../viewport/Viewport';
 

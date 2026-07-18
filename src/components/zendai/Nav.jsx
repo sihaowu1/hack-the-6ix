@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Terminal } from "lucide-react";
+import { Logo } from "../../../web/src/components/app/Logo";
 
 export default function Nav() {
   const [scrolled, setScrolled] = useState(false);
@@ -22,8 +22,8 @@ export default function Nav() {
       <div className="mx-auto max-w-[1400px] px-6 lg:px-10">
         <div className="flex h-16 items-center justify-between">
           <a href="#top" className="flex items-center gap-2.5 group">
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-white">
-              <Terminal className="h-4 w-4 text-inkwell" strokeWidth={2.2} />
+            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-white text-inkwell">
+              <Logo size={18} />
             </div>
             <span className="font-heading text-lg font-bold tracking-tight text-white">
               Zendai

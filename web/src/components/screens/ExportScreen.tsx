@@ -5,8 +5,8 @@ import { useResizable } from '../layout/useResizable';
 import { Timeline } from '../timeline/Timeline';
 import type { TimelineClip } from '../timeline/timelineMath';
 import type { TimelinePlayback } from '../timeline/useTimelinePlayback';
-import type { Mp4JobState } from '../state/useSceneProject';
-import { VideoPreview } from '../video/VideoPreview';
+import type { Mp4JobState } from '../../state/useSceneProject';
+import { VideoPreview } from '../VideoPreview';
 
 export interface ExportScreenProps {
   /** The active model's tunables (from `useSceneProject.tunables`), edited via the click floater. */

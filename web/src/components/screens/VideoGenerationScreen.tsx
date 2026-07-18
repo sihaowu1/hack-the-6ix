@@ -7,8 +7,8 @@ import { useResizable } from '../layout/useResizable';
 import { MODEL_DRAG_TYPE, Timeline } from '../timeline/Timeline';
 import type { TimelineClip } from '../timeline/timelineMath';
 import type { TimelinePlayback } from '../timeline/useTimelinePlayback';
-import type { Mp4JobState, SceneModel } from '../state/useSceneProject';
-import { VideoPreview } from '../video/VideoPreview';
+import type { Mp4JobState, SceneModel } from '../../state/useSceneProject';
+import { VideoPreview } from '../VideoPreview';
 
 export interface VideoGenerationScreenProps {
   /** Models generated on the Model Generation screen (from `useSceneProject.models`). */

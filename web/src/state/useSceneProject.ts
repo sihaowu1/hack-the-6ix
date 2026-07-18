@@ -8,8 +8,8 @@ import {
   type RenderSettings,
 } from '@motionforge/shared';
 import * as api from '../api/client';
-import { deriveTimelineTotal, type TimelineClip } from '../timeline/timelineMath';
-import { useTimelinePlayback } from '../timeline/useTimelinePlayback';
+import { deriveTimelineTotal, type TimelineClip } from '../components/timeline/timelineMath';
+import { useTimelinePlayback } from '../components/timeline/useTimelinePlayback';
 
 /**
  * All editor state in one hook.

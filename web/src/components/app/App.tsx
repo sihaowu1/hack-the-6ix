@@ -1,11 +1,11 @@
 import { Link, NavLink, Navigate, Route, Routes } from 'react-router-dom';
-import { useSceneProject } from '../state/useSceneProject';
+import { useSceneProject } from '../../state/useSceneProject';
 import { StatusBar } from './StatusBar';
 import { Logo } from './Logo';
 import { ModelGenerationScreen } from '../screens/ModelGenerationScreen';
 import { VideoGenerationScreen } from '../screens/VideoGenerationScreen';
 import { ExportScreen } from '../screens/ExportScreen';
-import { ChatPanel } from '../chat/ChatPanel';
+import { ChatPanel } from '../ChatPanel';
 
 /**
  * Router shell.
