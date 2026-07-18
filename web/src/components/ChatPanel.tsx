@@ -23,6 +23,11 @@ interface Props {
   status: Status | null;
   onGenerate: (prompt: string, image?: ReferenceImage) => void;
   onModify: (prompt: string, image?: ReferenceImage) => void;
+  /** Primary action label (default Generate). Video screen uses Animate. */
+  generateLabel?: string;
+  modifyLabel?: string;
+  placeholder?: string;
+  emptyHint?: string;
   /**
    * Set false where the surrounding container already labels this pane — the
    * Video screen wraps it in a titled `Pane`, and two stacked headers read as
@@ -57,14 +62,25 @@ function canvasToReferenceImage(canvas: HTMLCanvasElement): { ref: ReferenceImag
 }
 
 /**
- * Minimal chat panel for the Video Generation screen.
+ * Minimal chat panel for Model / Video screens.
  *
  * Owns its own message list (this is a UI concern, not app state). Each user
  * message calls `onGenerate` or `onModify` from `useSceneProject`. When the
  * request completes (`busy` clears), the latest `status` is appended as an
  * assistant reply so the user sees what happened without leaving the pane.
  */
-export function ChatPanel({ busy, status, onGenerate, onModify, showTitle = true }: Props) {
+export function ChatPanel({
+  busy,
+  status,
+  onGenerate,
+  onModify,
+  generateLabel = 'Generate',
+  modifyLabel = 'Modify',
+  placeholder = 'Ask to modify the model, or generate a new one…',
+  emptyHint =
+    "Generate builds a new scene. Modify edits the one you're looking at. You can also attach or capture a reference image.",
+  showTitle = true,
+}: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [attachedImage, setAttachedImage] = useState<{ ref: ReferenceImage; dataUrl: string } | null>(null);
@@ -169,9 +185,7 @@ export function ChatPanel({ busy, status, onGenerate, onModify, showTitle = true
         {messages.length === 0 && (
           <div className="flex flex-1 flex-col items-center justify-center gap-1.5 px-3 text-center">
             <p className="m-0 text-[14px] font-semibold text-text-dim">Describe a scene</p>
-            <p className="m-0 text-[13px] leading-normal text-text-faint">
-              Generate builds a new scene. Modify edits the one you're looking at. You can also attach or capture a reference image.
-            </p>
+            <p className="m-0 text-[13px] leading-normal text-text-faint">{emptyHint}</p>
           </div>
         )}
         {messages.map((m) => (
@@ -241,7 +255,7 @@ export function ChatPanel({ busy, status, onGenerate, onModify, showTitle = true
         <textarea
           value={input}
           onChange={(event) => setInput(event.target.value)}
-          placeholder="Ask to modify the model, or generate a new one…"
+          placeholder={placeholder}
           rows={2}
           className={`resize-none font-sans ${FIELD}`}
           disabled={busy !== null}
@@ -297,10 +311,10 @@ export function ChatPanel({ busy, status, onGenerate, onModify, showTitle = true
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
           </IconButton>
           <Button variant="secondary" type="button" disabled={disabled} onClick={() => send('generate')}>
-            Generate
+            {generateLabel}
           </Button>
           <Button variant="primary" type="submit" disabled={disabled}>
-            Modify
+            {modifyLabel}
           </Button>
         </div>
       </form>
