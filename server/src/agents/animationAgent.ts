@@ -5,9 +5,10 @@ import { loadSkill } from '../ai/skills';
 import { extractFencedBlocks } from '../ai/extract';
 
 /**
- * Animation agent: one LLM call with the threejs-animation skill that adds a
- * user-requested, one-shot animation to an existing scene module. The host
- * stores the result as a duplicate clip — base model code stays frozen.
+ * Animation agent: LLM calls with the threejs-animation skill.
+ * - animateModel: create a one-shot clip from a static base module
+ * - modifyAnimation: edit an existing animated module in place
+ * The host stores the result as a duplicate clip — base model code stays frozen.
  * Validates the result (and geometry preservation) and retries once on failure.
  */
 
@@ -36,6 +37,36 @@ export async function animateModel(
         'Drive motion from time in updateScene (clamp, hold at end — do not loop). ' +
         'Keep every part resting at y >= 0 (do not sink through the floor). ' +
         'Do NOT set or change CAMERA. Only animate what the instruction asks for. ' +
+        'Return the complete updated ```javascript block.',
+    },
+  ];
+  return completeWithRetry(client, messages, code);
+}
+
+/**
+ * Edit an existing animated module. `code` is the current animation duplicate
+ * (already has ANIMATION / motion in updateScene), not the frozen base model.
+ * Baseline for geometry checks is that animated module so existing pivots stay valid.
+ */
+export async function modifyAnimation(
+  client: Anthropic,
+  prompt: string,
+  code: string,
+): Promise<ModelCode> {
+  const messages: Anthropic.MessageParam[] = [
+    {
+      role: 'user',
+      content:
+        `Modify the existing one-shot animation on this Three.js module.\n\n` +
+        `Modification instruction: ${prompt}\n\n` +
+        `Current animated module:\n\`\`\`javascript\n${code}\n\`\`\`\n\n` +
+        'This module already has ANIMATION and motion in updateScene — edit that clip ' +
+        'in place. Do not scrap it and start over unless the instruction clearly asks ' +
+        'for a wholly different action. Preserve geometry, materials, PARAMS, CAMERA, ' +
+        'and existing pivot Groups. Keep ANIMATION.name unless the user renames the clip. ' +
+        'Adjust ANIMATION.tracks / duration and the motion half of updateScene as needed. ' +
+        'Clamp time, hold the final pose (do not loop). Keep every part at y >= 0. ' +
+        'Do NOT set or change CAMERA. Only change what the instruction asks for. ' +
         'Return the complete updated ```javascript block.',
     },
   ];

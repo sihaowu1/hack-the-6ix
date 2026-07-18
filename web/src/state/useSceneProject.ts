@@ -587,6 +587,91 @@ export function useSceneProject() {
     [run, models, activeModelId, selectedLayer],
   );
 
+  /**
+   * Video-screen Modify: edit the existing animation duplicate in place.
+   * Sends `animation.code` (not the frozen base). Keeps the same animation id
+   * so timeline clips keep pointing at it; updates duration/label on those clips.
+   */
+  const modifyAnimation = useCallback(
+    (prompt: string) =>
+      run('Modifying animation…', async () => {
+        const target = resolveModelForAnimation(models, activeModelId);
+        if (!target) {
+          throw new Error('No model available. Generate a model on the Model screen first.');
+        }
+        if (!target.animation) {
+          throw new Error('No animation to modify. Use Animate first to create one.');
+        }
+
+        const focused =
+          selectedLayer && activeModelId === target.id
+            ? `${prompt}\n\nFocus on part/layer: ${selectedLayer}.`
+            : prompt;
+
+        const result = await api.modifyAnimation(focused, target.animation.code);
+        const duration = parseAnimationDuration(result.code) ?? target.animation.duration;
+        const name = parseAnimationName(result.code) ?? target.animation.name;
+        const parts = parseAnimationPartNames(result.code);
+        const partList =
+          parts.length > 0
+            ? parts
+            : selectedLayer
+              ? [selectedLayer]
+              : target.animation.parts;
+
+        const animationId = target.animation.id;
+        const instance: AnimationInstance = {
+          id: animationId,
+          name,
+          duration,
+          code: result.code,
+          parts: partList,
+          createdAt: target.animation.createdAt,
+        };
+
+        setModels((current) =>
+          current.map((m) => (m.id === target.id ? { ...m, animation: instance } : m)),
+        );
+        setActiveModelId(target.id);
+        setSelectedModelIds([target.id]);
+        setTimelineFocusModelId(target.id);
+
+        setClips((current) => {
+          const matching = current.filter((c) => c.animationId === animationId);
+          if (matching.length === 0) {
+            const withoutModel = current.filter((c) => c.modelId !== target.id);
+            const start =
+              withoutModel.length === 0
+                ? 0
+                : Math.ceil(Math.max(...withoutModel.map((c) => c.start + c.duration)));
+            return [
+              ...withoutModel,
+              {
+                id: makeId(),
+                modelId: target.id,
+                animationId,
+                part: WHOLE_PART,
+                label: name,
+                start,
+                duration,
+              },
+            ].sort((a, b) => a.start - b.start || a.part.localeCompare(b.part));
+          }
+          return current
+            .map((c) =>
+              c.animationId === animationId ? { ...c, label: name, duration } : c,
+            )
+            .sort((a, b) => a.start - b.start || a.part.localeCompare(b.part));
+        });
+
+        setStatus({
+          kind: 'info',
+          text: `Updated animation on “${target.name}” (${duration.toFixed(duration % 1 === 0 ? 0 : 1)}s).`,
+        });
+      }),
+    [run, models, activeModelId, selectedLayer],
+  );
+
   const setParam = useCallback(
     (name: string, value: number | boolean | string) => {
       setCode((current) => patchParam(current, name, value));
@@ -1098,6 +1183,7 @@ export function useSceneProject() {
     modify,
     route,
     animate,
+    modifyAnimation,
     aspectRatio,
     setAspectRatio,
     importModel,

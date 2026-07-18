@@ -13,6 +13,7 @@ import {
   critiqueGeneratedScene,
   fuseModels,
   generateModel,
+  modifyAnimation,
   modifyModel,
   resolveIntent,
 } from '../agents/orchestrator';
@@ -167,6 +168,23 @@ generateRouter.post('/animate', async (req, res) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logError('animate', message);
+    res.status(500).json({ error: message });
+  }
+});
+
+// Prompt + existing animated module → edited animation (same clip, not a scrap/replace).
+generateRouter.post('/modify-animation', async (req, res) => {
+  const prompt = String(req.body?.prompt ?? '').trim();
+  const code = String(req.body?.code ?? '');
+  if (!prompt || !code) {
+    res.status(400).json({ error: 'prompt and code are required' });
+    return;
+  }
+  try {
+    res.json(await modifyAnimation(prompt, code));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logError('modify-animation', message);
     res.status(500).json({ error: message });
   }
 });

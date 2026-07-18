@@ -70,12 +70,13 @@ export function App() {
                     busy={project.busy}
                     status={project.status}
                     onGenerate={project.animate}
+                    onModify={project.modifyAnimation}
                     title="Video chat"
-                    showModify={false}
                     allowImageAttachment={false}
                     generateLabel="Animate"
-                    placeholder="Describe motion for the selected model…"
-                    emptyHint="Select a model or merge in Materials — Animate always targets that selection. Orbit the preview to frame the shot."
+                    modifyLabel="Modify"
+                    placeholder="Describe new motion, or how to change the current animation…"
+                    emptyHint="Select a model in Materials. Animate creates a new clip from the base model; Modify edits the existing animation in place. Orbit the preview to frame the shot."
                   />
                 }
               />

@@ -26,7 +26,7 @@ interface Props {
   busy: string | null;
   status: Status | null;
   onGenerate: (prompt: string, image?: ReferenceImage) => void;
-  /** Omit or set showModify=false on Video — Enter then runs Generate/Animate. */
+  /** Omit or set showModify=false to hide Modify — Enter then runs Generate/Animate. */
   onModify?: (prompt: string, image?: ReferenceImage) => void;
   /**
    * Enter/submit routing. When provided (Model screen), it decides generate
@@ -48,7 +48,7 @@ interface Props {
   showTitle?: boolean;
   /** When false, hide camera/upload/paste image attachment (Video screen). */
   allowImageAttachment?: boolean;
-  /** When false, hide Modify and make Enter/submit run Generate (Video screen). */
+  /** When false, hide Modify and make Enter/submit run Generate (e.g. Animate-only). */
   showModify?: boolean;
 }
 
@@ -112,7 +112,8 @@ export function ChatPanel({
   const streamRef = useRef<MediaStream | null>(null);
 
   const canModify = showModify && typeof onModify === 'function';
-  const primaryKind: 'generate' | 'modify' = canModify ? 'modify' : 'generate';
+  /** Enter / form submit always runs Generate (or Animate). Modify is the secondary click. */
+  const primaryKind: 'generate' | 'modify' = 'generate';
 
   useEffect(() => {
     const isBusy = busy !== null;
@@ -196,7 +197,6 @@ export function ChatPanel({
     if (kind === 'generate') onGenerate(prompt, image?.ref);
     else if (kind === 'modify') onModify?.(prompt, image?.ref);
     else if (onSmartSend) onSmartSend(prompt, image?.ref);
-    else if (canModify) onModify?.(prompt, image?.ref);
     else onGenerate(prompt, image?.ref);
   };
 
@@ -345,18 +345,18 @@ export function ChatPanel({
                 variant="ghost"
                 type="button"
                 disabled={disabled}
-                title="Build a new model from this prompt"
-                onClick={() => send('generate')}
+                title="Edit the current selection"
+                onClick={() => send('modify')}
               >
-                {generateLabel}
+                {modifyLabel}
               </Button>
               <Button
                 variant="primary"
                 type="submit"
                 disabled={disabled}
-                title="Edit the current model (Enter)"
+                title={`${generateLabel} from this prompt (Enter)`}
               >
-                {modifyLabel}
+                {generateLabel}
               </Button>
             </>
           ) : (

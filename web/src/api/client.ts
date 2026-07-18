@@ -139,6 +139,9 @@ export const critique = (body: CritiqueRequest) =>
 export const animate = (prompt: string, code: string) =>
   postJson<GenerationResult>('/api/animate', { prompt, code });
 
+export const modifyAnimation = (prompt: string, code: string) =>
+  postJson<GenerationResult>('/api/modify-animation', { prompt, code });
+
 export const fuse = (
   modules: Array<{ name: string; code: string }>,
   aspectRatio?: AspectRatio,

@@ -85,9 +85,10 @@ export const ANIMATION = {
 
 Rules:
 
-- **One clip per generation** — write a single `ANIMATION` export for this
-  request. The host stores many saved clips under the model; do **not** assume
-  you are erasing history, and do not try to merge prior clips into this export.
+- **One clip per response** — write a single `ANIMATION` export for this
+  request. On create, the host stores it as the model's active animation
+  duplicate. On modify, the host overwrites that same duplicate in place.
+  Do not try to merge prior clips into this export.
 - `duration` is required and must be `> 0`. Prefer an explicit length from the
   user; otherwise choose a short, readable playout (typically 1–4 seconds).
 - **`tracks` are required when any part moves** (strongly preferred always).
@@ -291,13 +292,33 @@ function sampleKeyframes(keyframes, t) {
 Inline a small `sampleKeyframes` helper in the module when using tracks (no
 imports).
 
-## Modify posture
+## Create vs modify
 
-Given the current module + an animation instruction:
+The host sends one of two modes. Follow the matching posture.
 
-1. Preserve geometry, materials, PARAMS, CAMERA, and unrelated named parts.
-2. Insert or adjust pivots only when required for correct joint motion.
-3. Replace or add `ANIMATION` for this request (one active clip) with `tracks`.
+### Create mode (new animation)
+
+Given a **static base module** (no useful `ANIMATION` yet) + an animation
+instruction:
+
+1. Preserve geometry, materials, PARAMS, CAMERA, and named parts.
+2. Insert pivots only when required for correct joint motion.
+3. Add `ANIMATION` (one active clip) with `name`, `duration`, and `tracks`.
 4. Rewrite the motion half of `updateScene` (keep PARAMS application).
-5. Return the complete `` ```javascript `` module (stored by the host as a
-   duplicate clip — the user's base model is never replaced).
+5. Return the complete `` ```javascript `` module. The host stores it as the
+   model's animation duplicate — the base model is never replaced.
+
+### Modify mode (edit existing animation)
+
+Given the **current animated module** (already has `ANIMATION` and motion in
+`updateScene`) + a modification instruction:
+
+1. Preserve geometry, materials, PARAMS, CAMERA, existing pivot Groups, and
+   unrelated named parts. Do not redesign the model.
+2. **Edit the existing clip in place** — adjust tracks, keyframes, duration,
+   and the motion half of `updateScene`. Do **not** scrap the clip and invent
+   a wholly different action unless the user clearly asks for that.
+3. Keep `ANIMATION.name` unless the user renames the clip.
+4. Insert or adjust pivots only when the requested change needs them.
+5. Return the complete `` ```javascript `` module. The host overwrites the same
+   animation duplicate (same id) — timeline clips keep pointing at it.

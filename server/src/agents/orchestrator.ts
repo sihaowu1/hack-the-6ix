@@ -162,6 +162,18 @@ export async function animateModel(prompt: string, code: string): Promise<Genera
   return { ...result, tunables: parseTunables(result.code), source: 'model' };
 }
 
+export async function modifyAnimation(prompt: string, code: string): Promise<GenerationResult> {
+  const client = getAnthropicClient();
+  if (!client) {
+    throw new Error(
+      'AI animation requires OPENROUTER_API_KEY (the offline template generator cannot modify animations). ' +
+        'You can still edit the code directly in the editor.',
+    );
+  }
+  const result = await animationAgent.modifyAnimation(client, prompt, code);
+  return { ...result, tunables: parseTunables(result.code), source: 'model' };
+}
+
 export async function fuseModels(
   modules: Array<{ name: string; code: string }>,
   aspectRatio?: AspectRatio,
