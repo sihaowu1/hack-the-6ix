@@ -1,10 +1,23 @@
+import { useEffect, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
+import type { TunableParam } from '@motionforge/shared';
+import { ControlsFloater } from '../controls/ControlsFloater';
+import type { ParamChange } from '../controls/ControlsPanel';
 import { Timeline } from '../timeline/Timeline';
 import type { Clip, Mp4JobState, SceneModel } from '../state/useSceneProject';
+import { Viewport } from '../viewport/Viewport';
 
 export interface VideoGenerationScreenProps {
   /** Models generated on the Model Generation screen (from `useSceneProject.models`). */
   models: SceneModel[];
+  /** The active model's id (from `useSceneProject.activeModelId`). */
+  activeModelId: string;
+  /** The active model's scene code (from `useSceneProject.code`), live-previewed until a render exists. */
+  code: string;
+  /** The active model's tunables (from `useSceneProject.tunables`), edited via the click floater. */
+  tunables: TunableParam[];
+  /** Patches a tunable on the active model (from `useSceneProject.setParam`). */
+  onParamChange: ParamChange;
   /** Current MP4 render job from `useSceneProject.mp4Job`. */
   mp4Job: Mp4JobState | null;
   /** Timeline clips (from `useSceneProject.clips`), rendered in the bottom row. */
@@ -26,10 +39,15 @@ export interface VideoGenerationScreenProps {
  */
 export function VideoGenerationScreen({
   models,
+  activeModelId,
+  code,
+  tunables,
+  onParamChange,
   mp4Job,
   clips,
   chat,
 }: VideoGenerationScreenProps) {
+  const activeModel = models.find((m) => m.id === activeModelId);
   return (
     <section className="video-screen" style={styles.root}>
       <div className="video-screen__top" style={styles.top}>
@@ -39,8 +57,14 @@ export function VideoGenerationScreen({
         <Pane title="Materials" area="materials">
           <MaterialsList models={models} />
         </Pane>
-        <Pane title="Resulting Video" area="video">
-          <VideoPreview job={mp4Job} />
+        <Pane title="Resulting Video" area="video" bodyStyle={styles.videoPaneBody}>
+          <VideoPreview
+            job={mp4Job}
+            code={code}
+            tunables={tunables}
+            onParamChange={onParamChange}
+            modelName={activeModel?.name ?? 'Model'}
+          />
         </Pane>
       </div>
       <div className="video-screen__timeline" style={styles.timeline}>
@@ -87,37 +111,33 @@ function MaterialsList({ models }: { models: SceneModel[] }) {
 }
 
 /**
- * Playback of the current Remotion render.
- * Renders one of four states straight from `mp4Job`:
- *   - null          → "not rendered yet" placeholder
- *   - running       → progress placeholder
- *   - error         → error placeholder
- *   - done + url    → <video> element
+ * The "Resulting Video" pane: the actual rendered MP4 once one exists, and a
+ * live, click-to-edit 3D preview of the active model beforehand — the same
+ * viewport + tunable-controls floater as the Model Generation screen (click
+ * the model to open its sliders/switches), so a scene can still be tweaked
+ * right up until — and in between — renders.
  */
-function VideoPreview({ job }: { job: Mp4JobState | null }) {
-  if (!job) {
-    return (
-      <Placeholder
-        label="No render yet"
-        hint="Start a render from the export panel to see the result here."
-      />
-    );
-  }
-  if (job.status === 'running') {
-    const pct = Math.round((job.progress ?? 0) * 100);
-    return (
-      <Placeholder
-        label={`Rendering… ${pct}%`}
-        hint={job.message || 'The MP4 render is in progress.'}
-      />
-    );
-  }
-  if (job.status === 'error') {
-    return (
-      <Placeholder label="Render failed" hint={job.error || 'The MP4 render did not complete.'} />
-    );
-  }
-  if (job.status === 'done' && job.url) {
+function VideoPreview({
+  job,
+  code,
+  tunables,
+  onParamChange,
+  modelName,
+}: {
+  job: Mp4JobState | null;
+  code: string;
+  tunables: TunableParam[];
+  onParamChange: ParamChange;
+  modelName: string;
+}) {
+  const [clickAnchor, setClickAnchor] = useState<{ x: number; y: number } | null>(null);
+
+  // A different model becoming active invalidates whatever was anchored.
+  useEffect(() => {
+    setClickAnchor(null);
+  }, [modelName]);
+
+  if (job?.status === 'done' && job.url) {
     return (
       <video
         key={job.url}
@@ -128,17 +148,44 @@ function VideoPreview({ job }: { job: Mp4JobState | null }) {
       />
     );
   }
-  return <Placeholder label="Render finished" hint="Waiting for the video URL…" />;
+
+  return (
+    <div style={styles.livePreview}>
+      <Viewport code={code} onModelClick={setClickAnchor} />
+      {job?.status === 'running' && (
+        <div style={styles.liveBadge}>
+          Rendering… {Math.round((job.progress ?? 0) * 100)}%
+        </div>
+      )}
+      {job?.status === 'error' && (
+        <div style={{ ...styles.liveBadge, ...styles.liveBadgeError }}>
+          Render failed{job.error ? `: ${job.error}` : ''}
+        </div>
+      )}
+      {!job && <div style={styles.liveBadge}>Live preview — click the model to tweak it</div>}
+      {clickAnchor && (
+        <ControlsFloater
+          anchor={clickAnchor}
+          title={modelName}
+          tunables={tunables}
+          onChange={onParamChange}
+          onClose={() => setClickAnchor(null)}
+        />
+      )}
+    </div>
+  );
 }
 
 function Pane({
   title,
   area,
   children,
+  bodyStyle,
 }: {
   title: string;
   area: string;
   children: ReactNode;
+  bodyStyle?: CSSProperties;
 }) {
   return (
     <div
@@ -147,7 +194,9 @@ function Pane({
       aria-label={title}
     >
       <header style={styles.paneHeader}>{title}</header>
-      <div style={styles.paneBody}>{children}</div>
+      <div style={bodyStyle ? { ...styles.paneBody, ...bodyStyle } : styles.paneBody}>
+        {children}
+      </div>
     </div>
   );
 }
@@ -210,6 +259,10 @@ const styles = {
     overflow: 'auto',
     padding: 12,
   },
+  videoPaneBody: {
+    overflow: 'hidden',
+    padding: 0,
+  },
   placeholder: {
     height: '100%',
     display: 'flex',
@@ -270,5 +323,26 @@ const styles = {
     background: '#000',
     borderRadius: 4,
     display: 'block',
+  },
+  livePreview: {
+    position: 'relative',
+    width: '100%',
+    height: '100%',
+  },
+  liveBadge: {
+    position: 'absolute',
+    left: 8,
+    bottom: 8,
+    maxWidth: 'calc(100% - 16px)',
+    padding: '4px 10px',
+    borderRadius: 4,
+    fontSize: 12,
+    color: 'var(--text-dim)',
+    background: 'rgba(18, 21, 28, 0.85)',
+    border: '1px solid var(--border)',
+  },
+  liveBadgeError: {
+    color: 'var(--error)',
+    borderColor: 'var(--error)',
   },
 } satisfies Record<string, CSSProperties>;

@@ -378,9 +378,83 @@ button:disabled {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
+/* ---- controls floater ---- */
+.controls-floater {
+  z-index: 50;
+  width: 280px;
+  max-height: min(70vh, 480px);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+.controls-floater__header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 12px;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+}
+
+.controls-floater__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+
+.controls-floater__close {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-dim);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.controls-floater__close:hover {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.controls-floater__body {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px;
+  scrollbar-color: var(--border) transparent;
+  scrollbar-width: thin;
+}
+
+.controls-floater__body .panel {
+  border: none;
+  padding: 0;
+  background: transparent;
+}
+
 /* ---- viewport ---- */
 .viewport {
   position: relative;
+  width: 100%;
+  height: 100%;
   min-width: 0;
   min-height: 0;
   background: #000;
