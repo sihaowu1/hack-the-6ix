@@ -70,6 +70,16 @@ export interface Clip {
 
 const DEFAULT_MODEL_ID = 'default';
 
+function makeDefaultModel(): SceneModel {
+  return {
+    id: DEFAULT_MODEL_ID,
+    name: 'Default model',
+    code: DEFAULT_SCENE_CODE,
+    blenderCode: DEFAULT_BLENDER_CODE,
+    createdAt: Date.now(),
+  };
+}
+
 function makeId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
@@ -84,15 +94,7 @@ function nameFromPrompt(prompt: string, fallbackIndex: number): string {
 
 export function useSceneProject() {
   // A default model is seeded so the app has valid code before the first generation.
-  const [models, setModels] = useState<SceneModel[]>(() => [
-    {
-      id: DEFAULT_MODEL_ID,
-      name: 'Default model',
-      code: DEFAULT_SCENE_CODE,
-      blenderCode: DEFAULT_BLENDER_CODE,
-      createdAt: Date.now(),
-    },
-  ]);
+  const [models, setModels] = useState<SceneModel[]>(() => [makeDefaultModel()]);
   const [activeModelId, setActiveModelId] = useState<string>(DEFAULT_MODEL_ID);
   /** Shift-click multi-select for building a merge; always includes the active id when non-empty. */
   const [selectedModelIds, setSelectedModelIds] = useState<string[]>([DEFAULT_MODEL_ID]);
@@ -282,6 +284,18 @@ export function useSceneProject() {
     setSelectedModelIds([id]);
   }, []);
 
+  /** Renames a model in the Models & Layers list (display name only). */
+  const renameModel = useCallback((modelId: string, newName: string) => {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    setModels((current) =>
+      current.map((m) => (m.id === modelId && m.name !== trimmed ? { ...m, name: trimmed } : m)),
+    );
+    setClips((current) =>
+      current.map((c) => (c.modelId === modelId && c.label !== trimmed ? { ...c, label: trimmed } : c)),
+    );
+  }, []);
+
   /** Renames a mesh-group key on a model's scene module (code stays source of truth). */
   const renameModelLayer = useCallback((modelId: string, oldName: string, newName: string) => {
     const trimmed = newName.trim();
@@ -456,6 +470,47 @@ export function useSceneProject() {
     [run],
   );
 
+  /** Clear models/clips and reseed the Default model (unlink / no linked repo). */
+  const resetToDefault = useCallback(() => {
+    const seed = makeDefaultModel();
+    setModels([seed]);
+    setActiveModelId(seed.id);
+    setSelectedModelIds([seed.id]);
+    setClips([]);
+    setMp4Job(null);
+    setStatus({ kind: 'info', text: 'Reset to Default model.' });
+  }, []);
+
+  /** Replace local models with scripts pulled from a linked GitHub repo. Clears timeline clips. */
+  const replaceFromRemote = useCallback(
+    (remote: Array<{ id: string; name: string; code: string; blenderCode?: string }>) => {
+      if (remote.length === 0) {
+        resetToDefault();
+        setStatus({
+          kind: 'info',
+          text: 'Linked repo has no models — reset to Default.',
+        });
+        return;
+      }
+      const next: SceneModel[] = remote.map((m) => ({
+        id: m.id,
+        name: m.name,
+        code: m.code,
+        blenderCode: m.blenderCode ?? DEFAULT_BLENDER_CODE,
+        createdAt: Date.now(),
+      }));
+      setModels(next);
+      setActiveModelId(next[0].id);
+      setSelectedModelIds([next[0].id]);
+      setClips([]);
+      setStatus({
+        kind: 'info',
+        text: `Loaded ${next.length} model${next.length === 1 ? '' : 's'} from linked GitHub repo.`,
+      });
+    },
+    [resetToDefault],
+  );
+
   return {
     code,
     setCode,
@@ -473,6 +528,7 @@ export function useSceneProject() {
     setActiveModel,
     selectModel,
     mergeSelectedModels,
+    renameModel,
     renameModelLayer,
     deleteModelLayer,
     viewportScenes,
@@ -491,6 +547,8 @@ export function useSceneProject() {
     exportMp4,
     syncBlender,
     runBlenderAgent,
+    replaceFromRemote,
+    resetToDefault,
   };
 }
 

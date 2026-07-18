@@ -9,9 +9,14 @@ interface Props {
   selectedModelIds: string[];
   onSelectModel: (id: string, options?: { shiftKey?: boolean }) => void;
   onMergeSelected: () => void;
+  onRenameModel: (modelId: string, newName: string) => void;
   onRenameLayer: (modelId: string, oldName: string, newName: string) => void;
   onDeleteLayer: (modelId: string, layerName: string) => void;
 }
+
+type EditTarget =
+  | { kind: 'model'; modelId: string }
+  | { kind: 'layer'; modelId: string; name: string };
 
 /**
  * One row per generated scene/model, expandable to show its layers (the mesh
@@ -19,8 +24,8 @@ interface Props {
  * expand to a dropdown of their child model names instead.
  *
  * Click activates a single model; shift-click adds/removes from a multi-select
- * set. With two or more selected, Merge builds a co-view group. Layer rows
- * support inline rename and delete (which patch the model's scene module).
+ * set. With two or more selected, Merge builds a co-view group. Model rows and
+ * layer rows both support inline rename; layers can also be deleted.
  */
 export function ModelsLayersList({
   models,
@@ -28,11 +33,12 @@ export function ModelsLayersList({
   selectedModelIds,
   onSelectModel,
   onMergeSelected,
+  onRenameModel,
   onRenameLayer,
   onDeleteLayer,
 }: Props) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [editingLayer, setEditingLayer] = useState<{ modelId: string; name: string } | null>(null);
+  const [editing, setEditing] = useState<EditTarget | null>(null);
   const [editValue, setEditValue] = useState('');
 
   const layersByModel = useMemo(() => {
@@ -49,19 +55,28 @@ export function ModelsLayersList({
 
   const canMerge = selectedModelIds.length >= 2;
 
-  const startRename = (modelId: string, name: string) => {
-    setEditingLayer({ modelId, name });
+  const startRenameModel = (model: SceneModel) => {
+    setEditing({ kind: 'model', modelId: model.id });
+    setEditValue(model.name);
+  };
+
+  const startRenameLayer = (modelId: string, name: string) => {
+    setEditing({ kind: 'layer', modelId, name });
     setEditValue(name);
   };
 
   const commitRename = () => {
-    if (!editingLayer) return;
+    if (!editing) return;
     const next = editValue.trim();
-    if (next && next !== editingLayer.name) {
-      onRenameLayer(editingLayer.modelId, editingLayer.name, next);
+    if (editing.kind === 'model') {
+      if (next) onRenameModel(editing.modelId, next);
+    } else if (next && next !== editing.name) {
+      onRenameLayer(editing.modelId, editing.name, next);
     }
-    setEditingLayer(null);
+    setEditing(null);
   };
+
+  const cancelRename = () => setEditing(null);
 
   if (models.length === 0) {
     return (
@@ -105,45 +120,88 @@ export function ModelsLayersList({
             .map((id) => modelsById.get(id))
             .filter((m): m is SceneModel => Boolean(m));
           const badgeCount = isMerge ? childModels.length : layers.length;
+          const isEditingModel = editing?.kind === 'model' && editing.modelId === model.id;
 
           return (
             <li
               key={model.id}
-              className={`overflow-hidden rounded-md border bg-bg-raised ${
+              className={`group/model overflow-hidden rounded-md border bg-bg-raised ${
                 active || selected ? 'border-accent' : 'border-border'
               } ${selected && !active ? 'bg-accent/5' : ''}`}
             >
-              <button
-                type="button"
-                className={`flex w-full items-center gap-2 rounded-none border-none bg-transparent px-2.5 py-2 text-left font-medium transition-colors hover:bg-bg-hover ${
+              <div
+                className={`flex w-full items-center gap-2 px-2.5 py-2 ${
                   active || selected ? 'text-accent' : 'text-text'
                 }`}
-                aria-expanded={expanded}
-                aria-pressed={selected}
-                onClick={(event) => {
-                  onSelectModel(model.id, { shiftKey: event.shiftKey });
-                  if (!event.shiftKey) {
-                    setExpandedId(expanded ? null : model.id);
-                  }
-                }}
               >
-                <CaretRight
-                  size={12}
-                  weight="bold"
-                  className={`flex-shrink-0 text-text-dim transition-transform duration-150 ease-out ${
-                    expanded ? 'rotate-90' : ''
-                  }`}
-                  aria-hidden="true"
-                />
-                <span
-                  className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[13px]"
-                  title={model.name}
+                <button
+                  type="button"
+                  className="flex min-w-0 flex-1 items-center gap-2 rounded-none border-none bg-transparent p-0 text-left font-medium transition-colors hover:opacity-90"
+                  aria-expanded={expanded}
+                  aria-pressed={selected}
+                  onClick={(event) => {
+                    if (isEditingModel) return;
+                    onSelectModel(model.id, { shiftKey: event.shiftKey });
+                    if (!event.shiftKey) {
+                      setExpandedId(expanded ? null : model.id);
+                    }
+                  }}
                 >
-                  {model.name}
-                  {isMerge ? (
-                    <span className="ml-1.5 font-normal text-text-dim">· merge</span>
-                  ) : null}
-                </span>
+                  <CaretRight
+                    size={12}
+                    weight="bold"
+                    className={`flex-shrink-0 text-text-dim transition-transform duration-150 ease-out ${
+                      expanded ? 'rotate-90' : ''
+                    }`}
+                    aria-hidden="true"
+                  />
+                  {isEditingModel ? (
+                    <input
+                      autoFocus
+                      value={editValue}
+                      onChange={(event) => setEditValue(event.target.value)}
+                      onClick={(event) => event.stopPropagation()}
+                      onBlur={commitRename}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault();
+                          commitRename();
+                        } else if (event.key === 'Escape') {
+                          event.preventDefault();
+                          cancelRename();
+                        }
+                      }}
+                      className="min-w-0 flex-1 rounded border border-accent bg-bg px-1.5 py-0.5 font-sans text-[13px] font-medium text-text outline-none"
+                      aria-label={`Rename model ${model.name}`}
+                    />
+                  ) : (
+                    <span
+                      className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[13px]"
+                      title={`${model.name} — double-click to rename`}
+                      onDoubleClick={(event) => {
+                        event.stopPropagation();
+                        startRenameModel(model);
+                      }}
+                    >
+                      {model.name}
+                      {isMerge ? (
+                        <span className="ml-1.5 font-normal text-text-dim">· merge</span>
+                      ) : null}
+                    </span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded border-none bg-transparent text-text-dim opacity-0 transition-opacity hover:bg-bg-hover hover:text-text group-hover/model:opacity-100 focus-visible:opacity-100"
+                  title={`Rename ${model.name}`}
+                  aria-label={`Rename ${model.name}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    startRenameModel(model);
+                  }}
+                >
+                  <PencilSimple size={12} weight="bold" aria-hidden="true" />
+                </button>
                 <span
                   className="min-w-[20px] flex-shrink-0 rounded-full border border-border bg-bg px-1.5 py-px text-center text-[11px] tabular-nums text-text-dim"
                   title={
@@ -154,7 +212,7 @@ export function ModelsLayersList({
                 >
                   {badgeCount}
                 </span>
-              </button>
+              </div>
               {expanded && (
                 <ul className="m-0 flex flex-col gap-0.5 py-0 pl-[30px] pr-2.5 pb-2">
                   {isMerge ? (
@@ -184,15 +242,17 @@ export function ModelsLayersList({
                     </li>
                   ) : (
                     layers.map((layer) => {
-                      const isEditing =
-                        editingLayer?.modelId === model.id && editingLayer.name === layer;
+                      const isEditingLayer =
+                        editing?.kind === 'layer' &&
+                        editing.modelId === model.id &&
+                        editing.name === layer;
 
                       return (
                         <li
                           key={layer}
                           className="group flex items-center gap-1 py-0.5 font-mono text-[12px] text-text-dim"
                         >
-                          {isEditing ? (
+                          {isEditingLayer ? (
                             <input
                               autoFocus
                               value={editValue}
@@ -204,7 +264,7 @@ export function ModelsLayersList({
                                   commitRename();
                                 } else if (event.key === 'Escape') {
                                   event.preventDefault();
-                                  setEditingLayer(null);
+                                  cancelRename();
                                 }
                               }}
                               className="min-w-0 flex-1 rounded border border-accent bg-bg px-1.5 py-0.5 font-mono text-[12px] text-text outline-none"
@@ -214,7 +274,7 @@ export function ModelsLayersList({
                             <span
                               className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
                               title={layer}
-                              onDoubleClick={() => startRename(model.id, layer)}
+                              onDoubleClick={() => startRenameLayer(model.id, layer)}
                             >
                               {layer}
                             </span>
@@ -226,7 +286,7 @@ export function ModelsLayersList({
                             aria-label={`Rename ${layer}`}
                             onClick={(event) => {
                               event.stopPropagation();
-                              startRename(model.id, layer);
+                              startRenameLayer(model.id, layer);
                             }}
                           >
                             <PencilSimple size={12} weight="bold" aria-hidden="true" />
@@ -238,7 +298,7 @@ export function ModelsLayersList({
                             aria-label={`Delete ${layer}`}
                             onClick={(event) => {
                               event.stopPropagation();
-                              if (editingLayer?.name === layer) setEditingLayer(null);
+                              if (isEditingLayer) setEditing(null);
                               onDeleteLayer(model.id, layer);
                             }}
                           >
