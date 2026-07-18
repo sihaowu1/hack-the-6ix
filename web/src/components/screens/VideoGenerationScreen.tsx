@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
-import type { TunableParam } from '@motionforge/shared';
+import { ASPECT_RATIOS, type AspectRatio, type TunableParam } from '@motionforge/shared';
 import type { ParamChange } from '../controls/ControlsPanel';
+import { AspectRatioBox } from '../layout/AspectRatioBox';
 import { ResizeHandle } from '../layout/ResizeHandle';
 import { useResizable } from '../layout/useResizable';
 import { MODEL_DRAG_TYPE, Timeline } from '../timeline/Timeline';
@@ -13,6 +14,14 @@ import { VideoPreview } from '../VideoPreview';
 export interface VideoGenerationScreenProps {
   /** Models generated on the Model Generation screen (from `useSceneProject.models`). */
   models: SceneModel[];
+  /**
+   * Preview aspect ratio (from `useSceneProject.aspectRatio`). Read by
+   * generate/modify at prompt time; changing it here only letterboxes the
+   * live preview differently — it never re-generates or re-positions the scene.
+   */
+  aspectRatio: AspectRatio;
+  /** Changes the aspect-ratio dropdown (from `useSceneProject.setAspectRatio`). */
+  onAspectRatioChange: (ratio: AspectRatio) => void;
   /** The active model's tunables (from `useSceneProject.tunables`), edited via the click floater. */
   tunables: TunableParam[];
   /** Patches a tunable on the active model (from `useSceneProject.setParam`). */
@@ -67,6 +76,8 @@ export interface VideoGenerationScreenProps {
  */
 export function VideoGenerationScreen({
   models,
+  aspectRatio,
+  onAspectRatioChange,
   tunables,
   onParamChange,
   mp4Job,
@@ -132,7 +143,11 @@ export function VideoGenerationScreen({
           onPointerDown={materialsWidth.startDragging}
           label="Resize materials panel"
         />
-        <Pane title="Resulting Video" bodyClassName="overflow-hidden p-0">
+        <Pane
+          title="Resulting Video"
+          bodyClassName="overflow-hidden p-0"
+          actions={<AspectRatioSelect value={aspectRatio} onChange={onAspectRatioChange} />}
+        >
           <div
             className={`relative h-full w-full shadow-[inset_0_0_0_0_var(--color-accent)] transition-shadow duration-100 ${
               isDropTarget ? 'shadow-[inset_0_0_0_2px_var(--color-accent)]' : ''
@@ -152,14 +167,16 @@ export function VideoGenerationScreen({
               onDropModel(modelId, playback.currentTime);
             }}
           >
-            <VideoPreview
-              job={mp4Job}
-              code={previewCode}
-              tunables={tunables}
-              onParamChange={onParamChange}
-              modelName={previewModelName}
-              time={previewTime}
-            />
+            <AspectRatioBox ratio={aspectRatioValue(aspectRatio)}>
+              <VideoPreview
+                job={mp4Job}
+                code={previewCode}
+                tunables={tunables}
+                onParamChange={onParamChange}
+                modelName={previewModelName}
+                time={previewTime}
+              />
+            </AspectRatioBox>
             {isDropTarget && (
               <div
                 className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[rgba(10,10,11,0.65)] text-[13px] font-semibold text-text"
@@ -237,18 +254,49 @@ function Pane({
   title,
   children,
   bodyClassName,
+  actions,
 }: {
   title: string;
   children: ReactNode;
   bodyClassName?: string;
+  actions?: ReactNode;
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-bg-panel" aria-label={title}>
-      <header className="border-b border-border bg-bg-raised px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-text-dim">
-        {title}
+      <header className="flex items-center justify-between gap-2 border-b border-border bg-bg-raised px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-text-dim">
+        <span>{title}</span>
+        {actions}
       </header>
       <div className={`min-h-0 flex-1 overflow-auto p-3 ${bodyClassName ?? ''}`}>{children}</div>
     </div>
+  );
+}
+
+function aspectRatioValue(aspectRatio: AspectRatio): number {
+  return ASPECT_RATIOS.find((a) => a.value === aspectRatio)?.ratio ?? 16 / 9;
+}
+
+/** Aspect-ratio dropdown shown in the "Resulting Video" pane header. */
+function AspectRatioSelect({
+  value,
+  onChange,
+}: {
+  value: AspectRatio;
+  onChange: (ratio: AspectRatio) => void;
+}) {
+  return (
+    <select
+      className="rounded border border-border bg-bg px-1.5 py-0.5 text-[11px] font-medium normal-case tracking-normal text-text"
+      aria-label="Preview aspect ratio"
+      value={value}
+      onChange={(event) => onChange(event.target.value as AspectRatio)}
+    >
+      {ASPECT_RATIOS.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
   );
 }
 

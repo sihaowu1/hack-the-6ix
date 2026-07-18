@@ -35,7 +35,7 @@ web (editor + controls + viewport)
    ▼
 server/routes  ─▶  server/agents (orchestrator)
    │                    │
-   │                    ├─▶ server/ai (Claude + scene-generation / remotion-mp4 skills)
+   │                    ├─▶ server/ai (Claude + scene-generation / camera-composition / remotion-mp4 skills)
    │                    │        │ offline fallback ▶ server/agents/templateFallback (shared/sceneTemplate)
    │                    ├─▶ server/mcp (Blender MCP client) ─▶ blender/mcp/server.py ─▶ blender/addon.py (in Blender)
    │                    └─▶ server/remotion/renderer ─▶ remotion/ (bundle + render) ─▶ renders/*.mp4
@@ -97,8 +97,11 @@ Every generated scene is expressed twice from the same design (see
   block directly rather than re-serializing the whole module.
 
 Claude Skills that drive this: `skills/scene-generation/SKILL.md` (scene + Blender script
-generation/modification) and `skills/remotion-mp4/SKILL.md` (fps/duration/resolution planning
-for a render, invoked before an MP4 export).
+generation/modification), `skills/camera-composition/SKILL.md` (translates a prompt's implied
+shot type and spatial layout into concrete object placement and `CAMERA` position/lookAt/fov —
+loaded alongside `scene-generation` in both `sceneAgent.ts` and `blenderAgent.ts`), and
+`skills/remotion-mp4/SKILL.md` (fps/duration/resolution planning for a render, invoked before an
+MP4 export).
 
 ## Config
 

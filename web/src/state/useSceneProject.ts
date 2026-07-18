@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import {
+  DEFAULT_ASPECT_RATIO,
   DEFAULT_BLENDER_CODE,
   DEFAULT_SCENE_CODE,
   parseTunables,
   patchParam,
+  type AspectRatio,
   type RenderSettings,
 } from '@motionforge/shared';
 import * as api from '../api/client';
@@ -90,6 +92,12 @@ export function useSceneProject() {
   const [busy, setBusy] = useState<string | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
   const [mp4Job, setMp4Job] = useState<Mp4JobState | null>(null);
+  // The Video Generation screen's aspect-ratio dropdown. Purely a display
+  // concern here: it only controls how the live preview is letterboxed
+  // (`AspectRatioBox`) and is not wired into generate/modify — see
+  // `server/src/agents/aspectRatioComposition.ts` for the (currently unused)
+  // code that would pass this to the camera-composition skill.
+  const [aspectRatio, setAspectRatio] = useState<AspectRatio>(DEFAULT_ASPECT_RATIO);
   const [blenderStatus, setBlenderStatus] = useState<api.BlenderStatus | null>(null);
   const pollRef = useRef<number | null>(null);
 
@@ -415,6 +423,8 @@ export function useSceneProject() {
     previewModelName,
     generate,
     modify,
+    aspectRatio,
+    setAspectRatio,
     exportCode,
     exportMp4,
     syncBlender,

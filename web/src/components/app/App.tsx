@@ -34,6 +34,8 @@ export function App() {
             element={
               <VideoGenerationScreen
                 models={project.models}
+                aspectRatio={project.aspectRatio}
+                onAspectRatioChange={project.setAspectRatio}
                 tunables={project.tunables}
                 onParamChange={project.setParam}
                 mp4Job={project.mp4Job}

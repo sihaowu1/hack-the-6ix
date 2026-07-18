@@ -1,58 +1,56 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { validateSceneModule } from '@motionforge/shared';
+import { validateSceneModule, DEFAULT_ASPECT_RATIO, type AspectRatio } from '@motionforge/shared';
 import { config } from '../config';
 import { loadSkill } from '../ai/skills';
 import { extractFencedBlocks } from '../ai/extract';
 
 /**
- * The scene agent: prompts Claude (with the scene-generation skill as its
- * system prompt) to write a Three.js scene module and a Blender Python script,
- * validates the result against the module contract, and retries once with the
- * validator's feedback if the contract was violated.
+ * Standalone aspect-ratio-aware scene composition.
+ *
+ * This is NOT wired into `orchestrator.ts`, any route, or the chat panel —
+ * nothing in the running app calls it. It exists to show how a caller would
+ * pass a target `AspectRatio` into the `camera-composition` skill (see
+ * `skills/camera-composition/SKILL.md`'s "Aspect ratio" section) so the model
+ * can acknowledge it and frame the shot for it, without touching the
+ * `scene-generation`/chat generate-modify pipeline in `sceneAgent.ts`.
  */
+
+export interface AspectRatioSceneResult {
+  code: string;
+  blenderCode: string;
+  /** The model's prose outside the code fences — expected to open with a one-line aspect-ratio acknowledgment. */
+  note?: string;
+}
 
 const JS_LANGS = new Set(['js', 'javascript']);
 
-export interface SceneCode {
-  code: string;
-  blenderCode: string;
+function aspectRatioLine(aspectRatio: AspectRatio): string {
+  return (
+    `Target preview aspect ratio: ${aspectRatio} (width:height). Acknowledge it in one short sentence, ` +
+    'then compose the camera and object placement for it per the camera-composition skill.'
+  );
 }
 
-export async function generateScene(client: Anthropic, prompt: string): Promise<SceneCode> {
+/**
+ * Generates a scene for a given prompt + aspect ratio using the
+ * `scene-generation` and `camera-composition` skills together. Standalone —
+ * see module doc comment.
+ */
+export async function generateSceneForAspectRatio(
+  client: Anthropic,
+  prompt: string,
+  aspectRatio: AspectRatio = DEFAULT_ASPECT_RATIO,
+): Promise<AspectRatioSceneResult> {
   const messages: Anthropic.MessageParam[] = [
     {
       role: 'user',
       content:
         `Create a 3D scene from this prompt:\n\n${prompt}\n\n` +
+        `${aspectRatioLine(aspectRatio)}\n\n` +
         'Return the ```javascript scene module and the ```python Blender script.',
     },
   ];
-  return completeWithRetry(client, messages);
-}
 
-export async function modifyScene(
-  client: Anthropic,
-  prompt: string,
-  code: string,
-  blenderCode: string,
-): Promise<SceneCode> {
-  const messages: Anthropic.MessageParam[] = [
-    {
-      role: 'user',
-      content:
-        `Modify the current scene.\n\nInstruction: ${prompt}\n\n` +
-        `Current scene module:\n\`\`\`javascript\n${code}\n\`\`\`\n\n` +
-        `Current Blender script:\n\`\`\`python\n${blenderCode}\n\`\`\`\n\n` +
-        'Return the complete updated ```javascript and ```python blocks.',
-    },
-  ];
-  return completeWithRetry(client, messages);
-}
-
-async function completeWithRetry(
-  client: Anthropic,
-  messages: Anthropic.MessageParam[],
-): Promise<SceneCode> {
   let errors: string[] = [];
   for (let attempt = 0; attempt < 2; attempt++) {
     const stream = client.messages.stream({
@@ -75,10 +73,9 @@ async function completeWithRetry(
     const py = blocks.find((block) => block.lang === 'python');
     errors = js ? validateSceneModule(js.code) : ['the response did not include a ```javascript block'];
     if (js && errors.length === 0) {
-      return { code: js.code, blenderCode: py?.code ?? '' };
+      const note = text.replace(/```[\s\S]*?```/g, '').trim();
+      return { code: js.code, blenderCode: py?.code ?? '', note: note || undefined };
     }
-    // Feed the validator's errors back for one corrective attempt. The full
-    // content (including thinking blocks) is echoed back unchanged.
     messages.push({ role: 'assistant', content: response.content as Anthropic.MessageParam['content'] });
     messages.push({
       role: 'user',
