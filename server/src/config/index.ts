@@ -23,10 +23,6 @@ export interface AppConfig {
     mgmtClientSecret: string;
   };
   mongo: { uri: string };
-  blender: {
-    enabled: boolean;
-    mcp: { command: string; args: string[]; bridgeHost: string; bridgePort: number };
-  };
   remotion: {
     compositionId: string;
     fps: number;
@@ -72,7 +68,6 @@ export const config: AppConfig = {
     mgmtClientSecret: process.env.AUTH0_MGMT_CLIENT_SECRET ?? raw.auth0?.mgmtClientSecret ?? '',
   },
   mongo: { uri: process.env.MONGODB_URI ?? raw.mongo?.uri ?? '' },
-  blender: { ...raw.blender, enabled: envBool('BLENDER_MCP_ENABLED', raw.blender.enabled) },
   remotion: { ...raw.remotion, gl: process.env.REMOTION_GL ?? raw.remotion.gl },
 };
 

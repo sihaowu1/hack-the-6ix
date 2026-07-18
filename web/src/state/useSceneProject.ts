@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import {
-  DEFAULT_BLENDER_CODE,
+  DEFAULT_ASPECT_RATIO,
   DEFAULT_SCENE_CODE,
   deleteLayer as deleteLayerInCode,
   extractLayers,
   parseTunables,
   patchParam,
   renameLayer as renameLayerInCode,
+  type AspectRatio,
   type ReferenceImage,
   type RenderSettings,
 } from '@motionforge/shared';
 import * as api from '../api/client';
+import { exportSceneAs, type ModelFormat } from '../viewport/exportScene';
 import { deriveTimelineTotal, MIN_CLIP_DURATION, type TimelineClip } from '../components/timeline/timelineMath';
 import { useTimelinePlayback } from '../components/timeline/useTimelinePlayback';
 
@@ -19,9 +21,9 @@ import { useTimelinePlayback } from '../components/timeline/useTimelinePlayback'
  * All editor state in one hook.
  *
  * The state holds an array of generated models (per SPEC.md Issue 2). One is
- * "active" at any time; `code`/`blenderCode`/`tunables` are derived from it,
- * and edits (setCode/setBlenderCode/setParam/modify) update the active model
- * in place. This is the single source of truth for both the Model screen's
+ * "active" at any time; `code`/`tunables` are derived from it, and edits
+ * (setCode/setParam/modify) update the active model in place. This is the
+ * single source of truth for both the Model screen's
  * viewport/editor and the Video screen's Materials pane.
  *
  * The state also holds an array of timeline clips. Every completed MP4 render
@@ -48,15 +50,23 @@ export interface SceneModel {
   id: string;
   name: string;
   code: string;
-  blenderCode: string;
   createdAt: number;
   /**
    * When set, this row is a co-view merge of other models. Children stay
    * independent (not constrained); the viewport places them side-by-side on
-   * the same ground plane. `code`/`blenderCode` mirror the first child so
+   * the same ground plane. `code` mirrors the first child so
    * export/modify/tunables still have a primary target.
    */
   childIds?: string[];
+  /**
+   * When set, this row is a statically-imported GLB/glTF asset (e.g. a
+   * Blender export) rather than AI-generated code. `code` stays a valid
+   * empty scene module so the rest of the pipeline (tunables, layers,
+   * export) keeps working harmlessly; the viewport renders the asset
+   * directly via `assetUrl` instead of evaluating `code` — see
+   * `SceneRuntime.createImportedModule`.
+   */
+  assetUrl?: string;
 }
 
 /** A rendered scene placed on the Video screen's timeline. */
@@ -72,12 +82,25 @@ export interface Clip {
 
 const DEFAULT_MODEL_ID = 'default';
 
+/** Placeholder module for imported assets — satisfies `validateSceneModule` but carries no geometry of its own (the viewport renders `assetUrl` instead). */
+const IMPORTED_MODEL_CODE = `// Imported model — rendered from the attached GLB/glTF asset, not from this code.
+export const PARAMS = {};
+export function buildScene() { return {}; }
+export function updateScene() {}
+`;
+
+/** Strip the extension and tidy up a filename for display, e.g. "robot_arm.glb" -> "robot arm". */
+function nameFromFileName(fileName: string): string {
+  const withoutExt = fileName.replace(/\.(glb|gltf)$/i, '');
+  const spaced = withoutExt.replace(/[_-]+/g, ' ').trim();
+  return spaced || 'Imported model';
+}
+
 function makeDefaultModel(): SceneModel {
   return {
     id: DEFAULT_MODEL_ID,
     name: 'Default model',
     code: DEFAULT_SCENE_CODE,
-    blenderCode: DEFAULT_BLENDER_CODE,
     createdAt: Date.now(),
   };
 }
@@ -128,17 +151,50 @@ function resolveModelForAnimation(
   return pick;
 }
 
+const MODELS_STORAGE_KEY = 'motionforge:models';
+
+function loadPersistedModels(): SceneModel[] {
+  try {
+    const raw = localStorage.getItem(MODELS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as SceneModel[];
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch { /* ignore corrupt data */ }
+  return [makeDefaultModel()];
+}
+
+function persistModels(models: SceneModel[]): void {
+  try {
+    // Don't persist imported asset URLs (blob: URLs are session-only)
+    const serializable = models.map(({ assetUrl, ...rest }) => rest);
+    localStorage.setItem(MODELS_STORAGE_KEY, JSON.stringify(serializable));
+  } catch { /* storage full or unavailable */ }
+}
+
 export function useSceneProject() {
   // A default model is seeded so the app has valid code before the first generation.
-  const [models, setModels] = useState<SceneModel[]>(() => [makeDefaultModel()]);
-  const [activeModelId, setActiveModelId] = useState<string>(DEFAULT_MODEL_ID);
+  const [models, setModels] = useState<SceneModel[]>(loadPersistedModels);
+  const [activeModelId, setActiveModelId] = useState<string>(() => {
+    const persisted = loadPersistedModels();
+    return persisted[0]?.id ?? DEFAULT_MODEL_ID;
+  });
   /** Shift-click multi-select for building a merge; always includes the active id when non-empty. */
-  const [selectedModelIds, setSelectedModelIds] = useState<string[]>([DEFAULT_MODEL_ID]);
+  const [selectedModelIds, setSelectedModelIds] = useState<string[]>(() => {
+    const persisted = loadPersistedModels();
+    return [persisted[0]?.id ?? DEFAULT_MODEL_ID];
+  });
   const [clips, setClips] = useState<Clip[]>([]);
   const [clipboardClip, setClipboardClip] = useState<Clip | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
   const [mp4Job, setMp4Job] = useState<Mp4JobState | null>(null);
+  // The Video Generation screen's aspect-ratio dropdown. Purely a display
+  // concern here: it only controls how the live preview is letterboxed
+  // (`AspectRatioBox`) and is not wired into generate/modify — see
+  // `server/src/agents/aspectRatioComposition.ts` for the (currently unused)
+  // code that would pass this to the camera-composition skill.
+  const [aspectRatio, setAspectRatio] = useState<AspectRatio>(DEFAULT_ASPECT_RATIO);
   const pollRef = useRef<number | null>(null);
 
   // The active model backs the editor/viewport. It always resolves to a real
@@ -148,7 +204,11 @@ export function useSceneProject() {
     [models, activeModelId],
   );
   const code = activeModel.code;
-  const blenderCode = activeModel.blenderCode;
+
+  // Persist models to localStorage on every change
+  useEffect(() => {
+    persistModels(models);
+  }, [models]);
 
   /** Scene modules the Model-screen viewport should co-render (one entry, or several for a merge). */
   const viewportScenes = useMemo(
@@ -213,26 +273,17 @@ export function useSceneProject() {
   // Patch just the active model in the array. Accepts either a value or an
   // updater function, matching React's `setState` shape so external callers
   // can use `(current) => …` when they only have the current-active value.
-  const updateActiveField = useCallback(
-    <K extends 'code' | 'blenderCode'>(field: K, next: SetStateAction<string>) => {
+  const setCode: Dispatch<SetStateAction<string>> = useCallback(
+    (next) => {
       setModels((current) =>
         current.map((m) => {
           if (m.id !== activeModelId) return m;
-          const value = typeof next === 'function' ? (next as (prev: string) => string)(m[field]) : next;
-          return { ...m, [field]: value };
+          const value = typeof next === 'function' ? (next as (prev: string) => string)(m.code) : next;
+          return { ...m, code: value };
         }),
       );
     },
     [activeModelId],
-  );
-
-  const setCode: Dispatch<SetStateAction<string>> = useCallback(
-    (next) => updateActiveField('code', next),
-    [updateActiveField],
-  );
-  const setBlenderCode: Dispatch<SetStateAction<string>> = useCallback(
-    (next) => updateActiveField('blenderCode', next),
-    [updateActiveField],
   );
 
   const generate = useCallback(
@@ -246,7 +297,6 @@ export function useSceneProject() {
             id,
             name: result.title || nameFromPrompt(prompt, current.length + 1),
             code: result.code,
-            blenderCode: result.blenderCode ?? DEFAULT_BLENDER_CODE,
             createdAt: Date.now(),
           },
         ]);
@@ -263,19 +313,43 @@ export function useSceneProject() {
     [run],
   );
 
+  /**
+   * Imports a Blender-exported GLB/glTF file as a new model row — no AI
+   * involved, no server round-trip. The file is kept as an in-memory blob
+   * URL (not persisted across reloads), and appears in both the Models &
+   * Layers list and the Video screen's Materials pane (which reuses this
+   * same `models` array).
+   */
+  const importModel = useCallback((file: File) => {
+    const id = makeId();
+    const assetUrl = URL.createObjectURL(file);
+    setModels((current) => [
+      ...current,
+      {
+        id,
+        name: nameFromFileName(file.name),
+        code: IMPORTED_MODEL_CODE,
+        createdAt: Date.now(),
+        assetUrl,
+      },
+    ]);
+    setActiveModelId(id);
+    setSelectedModelIds([id]);
+    setStatus({ kind: 'info', text: `Imported “${file.name}”.` });
+  }, []);
+
   const modify = useCallback(
     (prompt: string, image?: ReferenceImage, targetModelId?: string) =>
       run('Modifying model…', async () => {
         const modelId = targetModelId ?? activeModelId;
         const target = models.find((m) => m.id === modelId) ?? activeModel;
-        const result = await api.modify(prompt, target.code, target.blenderCode, image);
+        const result = await api.modify(prompt, target.code, image);
         setModels((current) =>
           current.map((m) =>
             m.id === target.id
               ? {
                   ...m,
                   code: result.code,
-                  blenderCode: result.blenderCode ?? m.blenderCode,
                   // Only replace the seeded placeholder name — a name the user
                   // already set (by generation or manual rename) is left alone.
                   name: m.name === 'Default model' && result.title ? result.title : m.name,
@@ -332,14 +406,13 @@ export function useSceneProject() {
         if (!target) {
           throw new Error('No model available to animate. Generate a model on the Model screen first.');
         }
-        const result = await api.animate(prompt, target.code, target.blenderCode);
+        const result = await api.animate(prompt, target.code);
         setModels((current) =>
           current.map((m) =>
             m.id === target.id
               ? {
                   ...m,
                   code: result.code,
-                  blenderCode: result.blenderCode ?? m.blenderCode,
                 }
               : m,
           ),
@@ -442,6 +515,21 @@ export function useSceneProject() {
     );
   }, []);
 
+  /** Removes an entire model from the project. */
+  const deleteModel = useCallback((modelId: string) => {
+    setModels((current) => {
+      const next = current.filter((m) => m.id !== modelId);
+      const cleaned = next.map((m) =>
+        m.childIds?.includes(modelId)
+          ? { ...m, childIds: m.childIds.filter((id) => id !== modelId) }
+          : m,
+      );
+      if (cleaned.length === 0) return [makeDefaultModel()];
+      return cleaned;
+    });
+    setSelectedModelIds((ids) => ids.filter((id) => id !== modelId));
+  }, []);
+
   /**
    * Creates a co-view merge from the current multi-selection. Children remain
    * separate models; the new row only groups them for side-by-side viewing.
@@ -483,7 +571,6 @@ export function useSceneProject() {
         id,
         name: name.length > 48 ? `${name.slice(0, 48)}…` : name,
         code: primary.code,
-        blenderCode: primary.blenderCode,
         createdAt: Date.now(),
         childIds: leafIds,
       },
@@ -563,13 +650,23 @@ export function useSceneProject() {
   }, []);
 
   const exportCode = useCallback(
-    () =>
+    (format: api.CodeExportFormat = 'standalone') =>
       run('Exporting code…', async () => {
-        const blob = await api.exportCodeZip(code, blenderCode);
-        downloadBlob(blob, 'zendai-scene.zip');
-        setStatus({ kind: 'info', text: 'Project exported as zendai-scene.zip.' });
+        const blob = await api.exportCodeZip(code, format);
+        const fileName = `zendai-scene-${format}.zip`;
+        downloadBlob(blob, fileName);
+        setStatus({ kind: 'info', text: `Project exported as ${fileName}.` });
       }),
-    [run, code, blenderCode],
+    [run, code],
+  );
+
+  const exportModel = useCallback(
+    (format: ModelFormat) =>
+      run(`Exporting ${format.toUpperCase()}…`, async () => {
+        await exportSceneAs(code, format);
+        setStatus({ kind: 'info', text: `Scene exported as scene.${format}.` });
+      }),
+    [run, code],
   );
 
   const exportMp4 = useCallback(
@@ -624,24 +721,6 @@ export function useSceneProject() {
     [run, code, activeModelId, activeModel.name],
   );
 
-  const syncBlender = useCallback(
-    () =>
-      run('Sending scene to Blender…', async () => {
-        const result = await api.blenderSync(blenderCode);
-        setStatus({ kind: 'info', text: `Blender: ${result.output || 'scene updated'}` });
-      }),
-    [run, blenderCode],
-  );
-
-  const runBlenderAgent = useCallback(
-    (prompt: string) =>
-      run('Blender agent working…', async () => {
-        const result = await api.blenderAgent(prompt);
-        setStatus({ kind: 'info', text: `Blender agent: ${result.finalText.slice(0, 300)}` });
-      }),
-    [run],
-  );
-
   /** Clear models/clips and reseed the Default model (unlink / no linked repo). */
   const resetToDefault = useCallback(() => {
     const seed = makeDefaultModel();
@@ -655,7 +734,7 @@ export function useSceneProject() {
 
   /** Replace local models with scripts pulled from a linked GitHub repo. Clears timeline clips. */
   const replaceFromRemote = useCallback(
-    (remote: Array<{ id: string; name: string; code: string; blenderCode?: string }>) => {
+    (remote: Array<{ id: string; name: string; code: string }>) => {
       if (remote.length === 0) {
         resetToDefault();
         setStatus({
@@ -668,7 +747,6 @@ export function useSceneProject() {
         id: m.id,
         name: m.name,
         code: m.code,
-        blenderCode: m.blenderCode ?? DEFAULT_BLENDER_CODE,
         createdAt: Date.now(),
       }));
       setModels(next);
@@ -686,8 +764,6 @@ export function useSceneProject() {
   return {
     code,
     setCode,
-    blenderCode,
-    setBlenderCode,
     tunables,
     setParam,
     busy,
@@ -702,6 +778,7 @@ export function useSceneProject() {
     renameModel,
     renameModelLayer,
     deleteModelLayer,
+    deleteModel,
     viewportScenes,
     clips,
     addClipAtSecond,
@@ -720,11 +797,13 @@ export function useSceneProject() {
     generate,
     modify,
     route,
+    importModel,
     animate,
+    aspectRatio,
+    setAspectRatio,
     exportCode,
+    exportModel,
     exportMp4,
-    syncBlender,
-    runBlenderAgent,
     replaceFromRemote,
     resetToDefault,
   };
@@ -743,14 +822,14 @@ function downloadBlob(blob: Blob, name: string): void {
 export function resolveViewportScenes(
   model: SceneModel,
   models: SceneModel[],
-): Array<{ id: string; code: string }> {
+): Array<{ id: string; code: string; assetUrl?: string }> {
   if (model.childIds?.length) {
-    const scenes: Array<{ id: string; code: string }> = [];
+    const scenes: Array<{ id: string; code: string; assetUrl?: string }> = [];
     for (const childId of model.childIds) {
       const child = models.find((m) => m.id === childId);
-      if (child?.code) scenes.push({ id: child.id, code: child.code });
+      if (child?.code) scenes.push({ id: child.id, code: child.code, assetUrl: child.assetUrl });
     }
     if (scenes.length > 0) return scenes;
   }
-  return [{ id: model.id, code: model.code }];
+  return [{ id: model.id, code: model.code, assetUrl: model.assetUrl }];
 }

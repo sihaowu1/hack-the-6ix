@@ -148,7 +148,6 @@ const CODE_TURN_REQUEST =
 
 export interface SceneCode {
   code: string;
-  blenderCode: string;
   spec?: SceneSpec;
   summary?: string;
 }
@@ -199,14 +198,13 @@ export async function generateScene(
   const spec = await runSpecTurn(client, messages, system);
   messages.push({ role: 'user', content: CODE_TURN_REQUEST });
   const { code, summary } = await runCodeTurn(client, messages, system, spec);
-  return { code, blenderCode: '', spec, summary };
+  return { code, spec, summary };
 }
 
 export async function modifyScene(
   client: Anthropic,
   prompt: string,
   code: string,
-  blenderCode: string,
   image?: ReferenceImage,
   spec?: SceneSpec,
 ): Promise<SceneCode> {
@@ -234,7 +232,7 @@ export async function modifyScene(
         SUMMARY_REQUEST,
     });
     const result = await runCodeTurn(client, messages, system, nextSpec);
-    return { code: result.code, blenderCode, spec: nextSpec, summary: result.summary };
+    return { code: result.code, spec: nextSpec, summary: result.summary };
   }
 
   // No spec: projects created before the spec existed, and template output.
@@ -251,7 +249,7 @@ export async function modifyScene(
     { role: 'user', content: buildUserContent(text, image) },
   ];
   const result = await runCodeTurn(client, messages, system, undefined);
-  return { code: result.code, blenderCode, summary: result.summary };
+  return { code: result.code, summary: result.summary };
 }
 
 /** Ask the model for a completion and return its text plus raw content blocks. */

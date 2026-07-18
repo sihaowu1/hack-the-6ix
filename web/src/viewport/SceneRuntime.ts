@@ -1,10 +1,108 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { validateSceneModule, type SceneModule } from '@motionforge/shared';
+
+const gltfLoader = new GLTFLoader();
+
+/**
+ * Synthesizes a `SceneModule` for a statically-imported GLB/glTF asset — the
+ * Blender-export path bypasses the AI code-generation contract entirely
+ * (there is no `buildScene` source to hot-load), so the runtime builds one
+ * itself: an empty group is returned immediately (so `rebuild`'s
+ * before/after diff picks it up), and the parsed glTF scene is appended into
+ * it once loading resolves.
+ *
+ * AI-generated modules always add their own key/ambient lights (see
+ * `sceneTemplate.ts`); an imported glTF has none of that, and the viewport's
+ * optional "fill lights" helper defaults to off, so without a light rig of
+ * its own the model renders solid black. A fixed rig is added here so an
+ * import is visible without the user having to discover that toggle.
+ */
+function createImportedModule(assetUrl: string): SceneModule {
+  return {
+    PARAMS: {},
+    buildScene(ctx) {
+      const scene = ctx.scene as THREE.Scene;
+      const root = new THREE.Group();
+      root.add(new THREE.AmbientLight(0xffffff, 0.6));
+      const keyLight = new THREE.DirectionalLight(0xffffff, 1.2);
+      keyLight.position.set(4, 6, 5);
+      root.add(keyLight);
+      const fillLight = new THREE.DirectionalLight(0xffffff, 0.5);
+      fillLight.position.set(-4, 2, -3);
+      root.add(fillLight);
+      scene.add(root);
+      gltfLoader.load(
+        assetUrl,
+        (gltf) => {
+          normalizeImportedScale(gltf.scene);
+          root.add(gltf.scene);
+        },
+        undefined,
+        (err) => console.error('Failed to load imported model', err),
+      );
+      return { root };
+    },
+    updateScene() {},
+  };
+}
+
+/** Target height (world units) an imported glTF is normalized to — matches the rough scale generated scene templates use, which the default camera/home-position is framed for. */
+const IMPORTED_TARGET_HEIGHT = 2;
+
+/**
+ * Blender/glTF exports come in at whatever scale their source scene used
+ * (millimeters, meters, arbitrary units), which puts them wildly out of frame
+ * of the default camera — anywhere from a barely-visible speck to a giant
+ * shell the camera starts out inside of (indistinguishable from "just black").
+ * Rescaling to a fixed target height and grounding it at y=0 lands every
+ * import in the same neighborhood the default camera already frames.
+ */
+function normalizeImportedScale(object: THREE.Object3D): void {
+  const box = new THREE.Box3().setFromObject(object);
+  if (box.isEmpty()) return;
+  const size = box.getSize(new THREE.Vector3());
+  const maxDim = Math.max(size.x, size.y, size.z);
+  if (maxDim > 0 && Number.isFinite(maxDim)) {
+    const scale = IMPORTED_TARGET_HEIGHT / maxDim;
+    object.scale.setScalar(scale);
+  }
+  const scaledBox = new THREE.Box3().setFromObject(object);
+  const center = scaledBox.getCenter(new THREE.Vector3());
+  object.position.x -= center.x;
+  object.position.z -= center.z;
+  object.position.y -= scaledBox.min.y;
+}
+
+/** A clicked object's position (units), left/right yaw (`angle`, Y-axis) and up/down pitch (`pitch`, X-axis), both in degrees. */
+export interface ObjectTransform {
+  x: number;
+  y: number;
+  z: number;
+  /** Left/right rotation, degrees. */
+  angle: number;
+  /** Up/down rotation, degrees. */
+  pitch: number;
+}
+
+/**
+ * Bound to the specific object that was clicked. Reading/writing through this
+ * — rather than exposing the `THREE.Object3D` itself — keeps the manual
+ * position/rotation override entirely inside the runtime: it never touches
+ * PARAMS, generated code, or the AI agent, and it survives `updateScene`
+ * running every frame (see `SceneRuntime`'s render loop).
+ */
+export interface ObjectHandle {
+  getTransform(): ObjectTransform;
+  setTransform(transform: ObjectTransform): void;
+}
 
 export interface SceneEntry {
   id: string;
   code: string;
+  /** When set, this entry is an imported GLB/glTF asset — rendered via `createImportedModule` instead of hot-loading `code`. */
+  assetUrl?: string;
 }
 
 interface LoadedEntry {
@@ -13,9 +111,23 @@ interface LoadedEntry {
   objects: unknown;
 }
 
-
 /** Horizontal gap (world units) between co-viewed models on the shared ground plane. */
 const MERGE_SPACING = 4;
+
+/**
+ * Wrap a PARAMS object so undefined/NaN numeric reads fall back to 0, preventing
+ * NaN geometry from AI-generated code that references missing param keys.
+ */
+function safeguardParams(params: Record<string, unknown>): Record<string, unknown> {
+  return new Proxy(params, {
+    get(target, prop, receiver) {
+      const value = Reflect.get(target, prop, receiver);
+      if (value === undefined || value === null) return 0;
+      if (typeof value === 'number' && !Number.isFinite(value)) return 0;
+      return value;
+    },
+  });
+}
 
 /**
  * Live WebGL preview runtime. The editor's code string is hot-loaded as a real
@@ -28,7 +140,7 @@ const MERGE_SPACING = 4;
 export class SceneRuntime {
   onError: (err: Error) => void = () => {};
   /** Fired when a raycast click hits any object in the scene (not empty space). */
-  onObjectClick: (point: { x: number; y: number }) => void = () => {};
+  onObjectClick: (point: { x: number; y: number }, handle: ObjectHandle) => void = () => {};
 
   private canvas: HTMLCanvasElement;
   private renderer: THREE.WebGLRenderer;
@@ -43,6 +155,27 @@ export class SceneRuntime {
   private controlledTime: number | null = null;
   private raycaster = new THREE.Raycaster();
   private pointerDownPos: { x: number; y: number } | null = null;
+  /**
+   * Manual position/rotation overrides set by clicking an object and dragging
+   * its transform sliders. Re-applied after `updateScene` every frame (see
+   * `loop`) so they hold even against an animated object's own per-frame
+   * position assignment. Cleared on every rebuild since the objects it keys
+   * on are disposed then.
+   */
+  private transformOverrides = new Map<THREE.Object3D, ObjectTransform>();
+  /**
+   * Manual camera position/yaw override set via the "Camera" editor. Unlike
+   * `transformOverrides`, this must be re-applied *after* `controls.update()`
+   * every frame — `OrbitControls` recomputes the camera's position/orientation
+   * from its own internal spherical state and target on every call, which
+   * would otherwise stomp a direct `camera.position`/`camera.rotation` write.
+   * `controls.enabled` is turned off while this is set so a mouse drag over
+   * the canvas can't fight the sliders, and restored on `clearCameraOverride`.
+   */
+  private cameraOverride: ObjectTransform | null = null;
+  /** Toggled by the "Axes" button — persists across `setCode` rebuilds (the helper is re-added to each fresh `THREE.Scene`), reset only when a new `SceneRuntime` is constructed. */
+  private axesVisible = false;
+  private axesHelper: THREE.AxesHelper | null = null;
   private grid: THREE.GridHelper | null = null;
   private fillLights: THREE.Group | null = null;
   private gridVisible = false;
@@ -56,6 +189,9 @@ export class SceneRuntime {
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.camera = new THREE.PerspectiveCamera(45, 1, 0.1, 500);
     this.camera.position.set(4, 2.6, 5.5);
+    // Yaw around world-up first, then pitch relative to that — the standard
+    // FPS-camera Euler order, so a pitch (up/down) edit never introduces roll.
+    this.camera.rotation.order = 'YXZ';
     this.controls = new OrbitControls(this.camera, canvas);
     this.controls.enableDamping = true;
     this.controls.target.set(0, 0.8, 0);
@@ -78,6 +214,7 @@ export class SceneRuntime {
     }
 
     for (const entry of scenes) {
+      if (entry.assetUrl) continue;
       const errors = validateSceneModule(entry.code);
       if (errors.length > 0) throw new Error(`${entry.id}: ${errors.join('; ')}`);
     }
@@ -85,7 +222,7 @@ export class SceneRuntime {
     const loaded = await Promise.all(
       scenes.map(async (entry) => ({
         id: entry.id,
-        module: await loadSceneModule(entry.code),
+        module: entry.assetUrl ? createImportedModule(entry.assetUrl) : await loadSceneModule(entry.code),
       })),
     );
 
@@ -159,16 +296,125 @@ export class SceneRuntime {
     this.raycaster.setFromCamera(ndc, this.camera);
     const hits = this.raycaster.intersectObjects(this.scene.children, true);
     if (hits.length > 0) {
-      this.onObjectClick({ x: clientX, y: clientY });
+      const object = this.topLevelAncestor(hits[0].object);
+      this.onObjectClick(
+        { x: clientX, y: clientY },
+        {
+          getTransform: () => this.getObjectTransform(object),
+          setTransform: (transform) => this.setObjectTransform(object, transform),
+        },
+      );
     }
   }
 
+  /**
+   * Walks up to whatever `buildScene` added directly to the scene — moving
+   * that, not a sub-mesh, is what "the clicked object" means for compound
+   * objects. Each entry's top-level objects are wrapped in a `merge:<id>`
+   * group (see `rebuild`) so the stop condition is "parent is that group",
+   * not "parent is `this.scene`" directly.
+   */
+  private topLevelAncestor(object: THREE.Object3D): THREE.Object3D {
+    let node = object;
+    while (node.parent && node.parent !== this.scene && !node.parent.name.startsWith('merge:')) {
+      node = node.parent;
+    }
+    return node;
+  }
+
+  private getObjectTransform(object: THREE.Object3D): ObjectTransform {
+    return {
+      x: object.position.x,
+      y: object.position.y,
+      z: object.position.z,
+      angle: THREE.MathUtils.radToDeg(object.rotation.y),
+      pitch: THREE.MathUtils.radToDeg(object.rotation.x),
+    };
+  }
+
+  private setObjectTransform(object: THREE.Object3D, transform: ObjectTransform): void {
+    this.transformOverrides.set(object, transform);
+    object.position.set(transform.x, transform.y, transform.z);
+    object.rotation.set(THREE.MathUtils.degToRad(transform.pitch), THREE.MathUtils.degToRad(transform.angle), 0);
+  }
+
+  /** Handle for the "Camera" editor — mirrors `ObjectHandle` so the same `TransformControls` UI works for both. */
+  getCameraHandle(): ObjectHandle {
+    return {
+      getTransform: () => this.getCameraTransform(),
+      setTransform: (transform) => this.setCameraTransform(transform),
+    };
+  }
+
+  /** Enable or disable orbit controls entirely (e.g. for non-interactive previews). */
+  setControlsEnabled(enabled: boolean): void {
+    this.controls.enabled = enabled;
+  }
+
+  /** Hands manual camera control back to `OrbitControls`, e.g. when the camera editor popover closes. */
+  clearCameraOverride(): void {
+    this.cameraOverride = null;
+    this.controls.enabled = true;
+  }
+
+  private getCameraTransform(): ObjectTransform {
+    return {
+      x: this.camera.position.x,
+      y: this.camera.position.y,
+      z: this.camera.position.z,
+      angle: THREE.MathUtils.radToDeg(this.camera.rotation.y),
+      pitch: THREE.MathUtils.radToDeg(this.camera.rotation.x),
+    };
+  }
+
+  private setCameraTransform(transform: ObjectTransform): void {
+    this.cameraOverride = transform;
+    this.controls.enabled = false;
+    this.applyCameraOverride();
+  }
+
+  private applyCameraOverride(): void {
+    const transform = this.cameraOverride;
+    if (!transform) return;
+    this.camera.position.set(transform.x, transform.y, transform.z);
+    this.camera.rotation.set(
+      THREE.MathUtils.degToRad(transform.pitch),
+      THREE.MathUtils.degToRad(transform.angle),
+      0,
+    );
+  }
+
+  /** Shows/hides the red/green/blue X/Y/Z reference axes at the scene origin. */
+  setAxesVisible(visible: boolean): void {
+    this.axesVisible = visible;
+    this.syncAxesHelper();
+  }
+
+  getAxesVisible(): boolean {
+    return this.axesVisible;
+  }
+
+  /** Re-adds the (single, reused) helper to whatever the current `this.scene` is — needed after every rebuild, since `disposeScene`/reassignment discards the previous scene's children. */
+  private syncAxesHelper(): void {
+    if (!this.axesVisible) {
+      if (this.axesHelper) this.scene.remove(this.axesHelper);
+      return;
+    }
+    if (!this.axesHelper) this.axesHelper = new THREE.AxesHelper(10);
+    if (this.axesHelper.parent !== this.scene) this.scene.add(this.axesHelper);
+  }
+
   private rebuild(loaded: Array<{ id: string; module: SceneModule }>): void {
+    // Spare the reused axes helper from disposal — it's about to be re-added to the fresh scene, not thrown away.
+    if (this.axesHelper) this.scene.remove(this.axesHelper);
     disposeScene(this.scene);
     this.scene = new THREE.Scene();
     this.entries = [];
     this.grid = null;
     this.fillLights = null;
+    this.transformOverrides.clear();
+    this.clearCameraOverride();
+    this.syncAxesHelper();
 
     const primary = loaded[0]?.module;
     if (primary?.CAMERA?.position) this.camera.position.set(...primary.CAMERA.position);
@@ -195,7 +441,7 @@ export class SceneRuntime {
         const objects = module.buildScene({
           THREE,
           scene: this.scene,
-          params: module.PARAMS,
+          params: safeguardParams(module.PARAMS),
         });
 
         const added = this.scene.children.filter((child) => !before.has(child));
@@ -263,7 +509,7 @@ export class SceneRuntime {
           THREE,
           scene: this.scene,
           objects: entry.objects,
-          params: entry.module.PARAMS,
+          params: safeguardParams(entry.module.PARAMS),
           time,
         });
       } catch (err) {
@@ -273,7 +519,17 @@ export class SceneRuntime {
         }
       }
     }
+    // Re-assert manual overrides after updateScene, which may have just
+    // written its own position/rotation for this frame.
+    for (const [object, transform] of this.transformOverrides) {
+      object.position.set(transform.x, transform.y, transform.z);
+      object.rotation.set(THREE.MathUtils.degToRad(transform.pitch), THREE.MathUtils.degToRad(transform.angle), 0);
+    }
     this.controls.update();
+    // Applied after controls.update() (not folded into the transformOverrides
+    // loop above), since that call would otherwise overwrite our direct
+    // camera position/rotation write with its own target-relative one.
+    this.applyCameraOverride();
     this.renderer.render(this.scene, this.camera);
     this.raf = requestAnimationFrame(this.loop);
   }

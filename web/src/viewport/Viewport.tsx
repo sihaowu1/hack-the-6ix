@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { ArrowsClockwise, GridFour, Lightbulb } from '@phosphor-icons/react';
-import { SceneRuntime, type SceneEntry } from './SceneRuntime';
+import { SceneRuntime, type ObjectHandle, type SceneEntry } from './SceneRuntime';
 import { IconButton } from '../components/ui/Button';
 
 interface Props {
@@ -11,8 +11,12 @@ interface Props {
    * precedence over `code` — each entry is built into its own offset group.
    */
   scenes?: SceneEntry[];
-  /** Fired when the user clicks any rendered object (not empty space). */
-  onModelClick?: (point: { x: number; y: number }) => void;
+  /**
+   * Fired when the user clicks any rendered object (not empty space). `handle`
+   * reads/writes that exact object's position and Y rotation directly in the
+   * runtime — no PARAMS, code, or AI involved.
+   */
+  onModelClick?: (point: { x: number; y: number }, handle: ObjectHandle) => void;
   /**
    * Seconds fed to `updateScene` on every frame. Omit for a free-running
    * preview (Model screen); pass a timeline playhead to freeze/scrub the
@@ -21,13 +25,25 @@ interface Props {
   time?: number;
   /** Shows the grid/lighting/camera toolbar. Off for read-only previews. */
   showToolbar?: boolean;
+  /** When false, disables orbit controls so the preview is view-only. Default true. */
+  interactive?: boolean;
+}
+
+/** Imperative escape hatch for callers that need the camera outside the click-to-edit flow (e.g. the "Camera" button). */
+export interface ViewportHandle {
+  getCameraHandle: () => ObjectHandle | null;
+  clearCameraOverride: () => void;
+  setAxesVisible: (visible: boolean) => void;
 }
 
 /**
  * The WebGL preview panel. Debounces code changes (typing, slider drags, AI
  * output) and hot-reloads them into the SceneRuntime.
  */
-export function Viewport({ code, scenes, onModelClick, time, showToolbar = false }: Props) {
+export const Viewport = forwardRef<ViewportHandle, Props>(function Viewport(
+  { code, scenes, onModelClick, time, showToolbar = false, interactive = true },
+  ref,
+) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const runtimeRef = useRef<SceneRuntime | null>(null);
@@ -39,6 +55,16 @@ export function Viewport({ code, scenes, onModelClick, time, showToolbar = false
   const onModelClickRef = useRef(onModelClick);
   onModelClickRef.current = onModelClick;
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      getCameraHandle: () => runtimeRef.current?.getCameraHandle() ?? null,
+      clearCameraOverride: () => runtimeRef.current?.clearCameraOverride(),
+      setAxesVisible: (visible) => runtimeRef.current?.setAxesVisible(visible),
+    }),
+    [],
+  );
+
   const resolvedScenes = useMemo<SceneEntry[]>(() => {
     if (scenes && scenes.length > 0) return scenes;
     if (code) return [{ id: 'scene', code }];
@@ -47,7 +73,7 @@ export function Viewport({ code, scenes, onModelClick, time, showToolbar = false
 
   // Stable signature so object-identity churn on `scenes` doesn't thrash reloads.
   const scenesKey = useMemo(
-    () => resolvedScenes.map((s) => `${s.id}:${s.code}`).join('\0'),
+    () => resolvedScenes.map((s) => `${s.id}:${s.code}:${s.assetUrl ?? ''}`).join('\0'),
     [resolvedScenes],
   );
   const resolvedScenesRef = useRef(resolvedScenes);
@@ -57,7 +83,8 @@ export function Viewport({ code, scenes, onModelClick, time, showToolbar = false
     if (!canvasRef.current || !containerRef.current) return;
     const runtime = new SceneRuntime(canvasRef.current);
     runtime.onError = (err) => setError(err.message);
-    runtime.onObjectClick = (point) => onModelClickRef.current?.(point);
+    runtime.onObjectClick = (point, handle) => onModelClickRef.current?.(point, handle);
+    if (!interactive) runtime.setControlsEnabled(false);
     runtimeRef.current = runtime;
     const observer = new ResizeObserver(([entry]) => {
       runtime.resize(entry.contentRect.width, entry.contentRect.height);
@@ -142,4 +169,4 @@ export function Viewport({ code, scenes, onModelClick, time, showToolbar = false
       )}
     </div>
   );
-}
+});

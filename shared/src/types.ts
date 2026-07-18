@@ -9,6 +9,23 @@ export interface TunableParam {
   step?: number;
 }
 
+/**
+ * Preview/composition aspect ratio for the Video Generation screen. This is
+ * purely a framing hint for scene generation (how the AI blocks objects and
+ * points the camera) and for the live viewport's letterboxing — it is
+ * independent of `RenderSettings.width`/`height`, which the remotion-mp4
+ * skill picks separately at export time.
+ */
+export type AspectRatio = '16:9' | '1:1' | '4:3';
+
+export const ASPECT_RATIOS: ReadonlyArray<{ value: AspectRatio; label: string; ratio: number }> = [
+  { value: '16:9', label: '16:9', ratio: 16 / 9 },
+  { value: '1:1', label: '1:1', ratio: 1 },
+  { value: '4:3', label: '4:3', ratio: 4 / 3 },
+];
+
+export const DEFAULT_ASPECT_RATIO: AspectRatio = '16:9';
+
 /** Optional camera specification exported by a scene module as CAMERA. */
 export interface CameraSpec {
   position?: [number, number, number];
@@ -141,7 +158,6 @@ export interface SceneSpec {
 /** What the generation API returns to the editor. */
 export interface GenerationResult {
   code: string;
-  blenderCode: string;
   tunables: TunableParam[];
   source: 'model' | 'template';
   /** Absent on the offline template path and on pre-spec projects. */
@@ -181,25 +197,23 @@ export interface ChatIntent {
 
 // ─── Marketplace ────────────────────────────────────────────────────────────
 
-/** Summary returned in the paginated marketplace list (no code). */
+/** Summary returned in the paginated marketplace list. */
 export interface MarketplaceItemSummary {
   id: string;
   title: string;
   description: string;
+  code: string;
   creator: { name: string; picture?: string };
+  creatorSub?: string;
   publishedAt: string;
 }
 
 /** Full item detail including source code. */
-export interface MarketplaceItemDetail extends MarketplaceItemSummary {
-  code: string;
-  blenderCode: string;
-}
+export interface MarketplaceItemDetail extends MarketplaceItemSummary {}
 
 /** Body sent to POST /api/marketplace/publish. */
 export interface PublishRequest {
   title: string;
   description: string;
   code: string;
-  blenderCode: string;
 }

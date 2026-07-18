@@ -2,17 +2,6 @@ import type { ChatIntent, GenerationResult, IntentModelContext, MarketplaceItemD
 
 /** Thin typed client for the Zendai server API (proxied through Vite). */
 
-export interface BlenderStatus {
-  enabled: boolean;
-  connected: boolean;
-  tools: string[];
-}
-
-export interface BlenderAgentResult {
-  steps: Array<{ type: 'text' | 'tool'; detail: string }>;
-  finalText: string;
-}
-
 export interface Mp4JobResponse {
   id: string;
   status: 'running' | 'done' | 'error';
@@ -88,20 +77,34 @@ export const classifyIntent = (
   activeModelId?: string,
 ) => postJson<ChatIntent>('/api/intent', { prompt, models, activeModelId });
 
+async function patchJson<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(path, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(await authHeaders({ required: true })),
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw await parseError(response);
+  return response.json() as Promise<T>;
+}
+
+async function deleteRequest(path: string): Promise<void> {
+  const response = await fetch(path, {
+    method: 'DELETE',
+    headers: await authHeaders({ required: true }),
+  });
+  if (!response.ok) throw await parseError(response);
+}
+
 export const generate = (prompt: string, image?: ReferenceImage) =>
   postJson<GenerationResult>('/api/generate', { prompt, ...(image && { image }) });
 
-export const modify = (
-  prompt: string,
-  code: string,
-  blenderCode: string,
-  image?: ReferenceImage,
-  spec?: SceneSpec,
-) =>
+export const modify = (prompt: string, code: string, image?: ReferenceImage, spec?: SceneSpec) =>
   postJson<GenerationResult>('/api/modify', {
     prompt,
     code,
-    blenderCode,
     ...(image && { image }),
     ...(spec && { spec }),
   });
@@ -122,16 +125,8 @@ export type CritiqueResponse =
 export const critique = (body: CritiqueRequest) =>
   postJson<CritiqueResponse>('/api/critique', body);
 
-export const animate = (prompt: string, code: string, blenderCode: string) =>
-  postJson<GenerationResult>('/api/animate', { prompt, code, blenderCode });
-
-export const getBlenderStatus = () => getJson<BlenderStatus>('/api/blender/status');
-
-export const blenderSync = (code: string) =>
-  postJson<{ output: string }>('/api/blender/sync', { code });
-
-export const blenderAgent = (prompt: string) =>
-  postJson<BlenderAgentResult>('/api/blender/agent', { prompt });
+export const animate = (prompt: string, code: string) =>
+  postJson<GenerationResult>('/api/animate', { prompt, code });
 
 export const startMp4Export = (code: string, settings: RenderSettings) =>
   postJson<{ jobId: string }>('/api/export/mp4', { code, settings });
@@ -148,8 +143,8 @@ export interface MarketplaceListResponse {
   pages: number;
 }
 
-export const getMarketplace = (page = 1, limit = 20) =>
-  getJson<MarketplaceListResponse>(`/api/marketplace?page=${page}&limit=${limit}`);
+export const getMarketplace = (page = 1, limit = 20, mine?: boolean) =>
+  getJson<MarketplaceListResponse>(`/api/marketplace?page=${page}&limit=${limit}${mine ? '&mine=1' : ''}`);
 
 export const getMarketplaceItem = (id: string) =>
   getJson<MarketplaceItemDetail>(`/api/marketplace/${id}`);
@@ -157,16 +152,28 @@ export const getMarketplaceItem = (id: string) =>
 export const publishToMarketplace = (body: PublishRequest) =>
   postJson<{ id: string }>('/api/marketplace/publish', body);
 
+export const updateMarketplaceItem = (id: string, body: { title?: string; description?: string }) =>
+  patchJson<MarketplaceItemDetail>(`/api/marketplace/${id}`, body);
+
+export const deleteMarketplaceItem = (id: string) =>
+  deleteRequest(`/api/marketplace/${id}`);
+
 // ─── Export ─────────────────────────────────────────────────────────────────
 
-export async function exportCodeZip(code: string, blenderCode: string): Promise<Blob> {
+export const CODE_EXPORT_FORMATS = ['standalone', 'react', 'module'] as const;
+export type CodeExportFormat = (typeof CODE_EXPORT_FORMATS)[number];
+
+export async function exportCodeZip(
+  code: string,
+  format: CodeExportFormat = 'standalone',
+): Promise<Blob> {
   const response = await fetch('/api/export/code', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       ...(await authHeaders()),
     },
-    body: JSON.stringify({ code, blenderCode }),
+    body: JSON.stringify({ code, format }),
   });
   if (!response.ok) throw await parseError(response);
   return response.blob();
@@ -190,13 +197,13 @@ export interface GitHubModelPayload {
   id: string;
   name: string;
   code: string;
-  blenderCode?: string;
 }
 
 export interface GitHubProjectPayload {
   models: GitHubModelPayload[];
   title?: string;
   message?: string;
+  format?: CodeExportFormat;
 }
 
 export interface GitHubPullResult {

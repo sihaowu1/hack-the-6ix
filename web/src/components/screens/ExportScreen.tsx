@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { RenderSettings, TunableParam } from '@motionforge/shared';
+import type { ModelFormat } from '../../viewport/exportScene';
 import { RequireAuth } from '../../auth/RequireAuth';
 import { useAuth } from '../../auth/useAuth';
 import { PublishForm } from '../PublishForm';
@@ -15,20 +16,22 @@ import { VideoPreview } from '../VideoPreview';
 import { Button, ButtonLink, IconButton } from '../ui/Button';
 import { PANEL, PANEL_HEADER } from '../ui/Panel';
 import { FIELD, FIELD_LABEL } from '../ui/Input';
+import type { CodeExportFormat } from '../../api/client';
+import { CODE_EXPORT_FORMATS } from '../../api/client';
 
 export interface ExportScreenProps {
   /** All models to push under `models/` on GitHub commit/create. */
   models: SceneModel[];
   /** Active model scene module source. */
   code: string;
-  /** Active model Blender script. */
-  blenderCode: string;
   /** Display name used as export title. */
   modelName: string;
   /** Busy label from `useSceneProject` (blocks export actions while set). */
   busy: string | null;
   /** Download ZIP via `useSceneProject.exportCode`. */
-  onExportCode: () => void;
+  onExportCode: (format: CodeExportFormat) => void;
+  /** Export 3D model via `useSceneProject.exportModel`. */
+  onExportModel: (format: ModelFormat) => void;
   /** Start Remotion MP4 via `useSceneProject.exportMp4`. */
   onExportMp4: (settings: RenderSettings) => void;
   /** The active model's tunables (from `useSceneProject.tunables`), edited via the click floater. */
@@ -59,7 +62,7 @@ export interface ExportScreenProps {
   onGitHubUnlink: () => void;
   /** Apply models pulled from the linked GitHub repo. */
   onGitHubPull: (
-    models: Array<{ id: string; name: string; code: string; blenderCode?: string }>,
+    models: Array<{ id: string; name: string; code: string }>,
   ) => void;
 }
 
@@ -71,6 +74,12 @@ const RESOLUTIONS = [
   { label: '1920 × 1080', width: 1920, height: 1080 },
   { label: '1080 × 1080 (square)', width: 1080, height: 1080 },
   { label: '1080 × 1920 (vertical)', width: 1080, height: 1920 },
+];
+
+const FORMAT_OPTIONS: { value: CodeExportFormat; label: string }[] = [
+  { value: 'standalone', label: 'Standalone HTML' },
+  { value: 'react', label: 'React component' },
+  { value: 'module', label: 'ES module only' },
 ];
 
 /**
@@ -88,10 +97,10 @@ const RESOLUTIONS = [
 export function ExportScreen({
   models,
   code,
-  blenderCode,
   modelName,
   busy,
   onExportCode,
+  onExportModel,
   onExportMp4,
   tunables,
   onParamChange,
@@ -111,6 +120,7 @@ export function ExportScreen({
     onGitHubUnlink();
   }, [onGitHubUnlink]);
   const github = useGitHubRepo({ onUnlink });
+  const [codeFormat, setCodeFormat] = useState<CodeExportFormat>('standalone');
   const [fps, setFps] = useState(30);
   const [duration, setDuration] = useState(6);
   const [resolution, setResolution] = useState(0);
@@ -129,7 +139,6 @@ export function ExportScreen({
           id: m.id,
           name: m.name,
           code: m.code,
-          blenderCode: m.blenderCode,
         })),
     [models],
   );
@@ -164,9 +173,53 @@ export function ExportScreen({
           <p className="m-0 text-[13px] leading-normal text-text-faint">
             Download the generated project as code, or render it to an MP4.
           </p>
-          <Button variant="secondary" type="button" disabled={exportBusy} onClick={onExportCode}>
+          <label className={FIELD_LABEL}>
+            Code format
+            <select
+              className={FIELD}
+              value={codeFormat}
+              disabled={exportBusy}
+              onChange={(event) => {
+                const next = event.target.value;
+                if ((CODE_EXPORT_FORMATS as readonly string[]).includes(next)) {
+                  setCodeFormat(next as CodeExportFormat);
+                }
+              }}
+            >
+              {FORMAT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="m-0 text-[12px] leading-normal text-text-faint">
+            Applies to ZIP download and GitHub pushes.
+          </p>
+          <Button
+            variant="secondary"
+            type="button"
+            disabled={exportBusy}
+            onClick={() => onExportCode(codeFormat)}
+          >
             Export code (.zip)
           </Button>
+
+          <h3 className={PANEL_HEADER}>3D Model</h3>
+          <p className="m-0 text-[12px] leading-normal text-text-faint">
+            Export the scene geometry as a standard 3D file for Unity, Blender, CAD, or 3D printing.
+          </p>
+          <div className="grid grid-cols-3 gap-1.5">
+            <Button variant="secondary" type="button" disabled={exportBusy} onClick={() => onExportModel('glb')}>
+              .glb
+            </Button>
+            <Button variant="secondary" type="button" disabled={exportBusy} onClick={() => onExportModel('obj')}>
+              .obj
+            </Button>
+            <Button variant="secondary" type="button" disabled={exportBusy} onClick={() => onExportModel('stl')}>
+              .stl
+            </Button>
+          </div>
 
           {/* Size carries the longest option text ("1080 × 1920 (vertical)"),
               which still clipped at 1.5fr in this sidebar. It gets its own full
@@ -263,8 +316,8 @@ export function ExportScreen({
           </h2>
           <p className="m-0 text-[13px] leading-normal text-text-faint">
             Save all models under <code className="text-text">models/</code> (and an empty{' '}
-            <code className="text-text">animations/</code> folder) to a GitHub repo. Sign in with
-            GitHub is required.
+            <code className="text-text">animations/</code> folder) using the selected code format.
+            Sign in with GitHub is required.
           </p>
           <RequireAuth
             fallback={
@@ -311,6 +364,7 @@ export function ExportScreen({
                       models: githubModels,
                       title: modelName,
                       message: commitMessage || undefined,
+                      format: codeFormat,
                     })
                   }
                 >
@@ -399,6 +453,7 @@ export function ExportScreen({
                           models: githubModels,
                           title: modelName,
                           message: commitMessage || undefined,
+                          format: codeFormat,
                         })
                       }
                     >
@@ -464,7 +519,7 @@ export function ExportScreen({
             }
           >
             {code ? (
-              <PublishForm code={code} blenderCode={blenderCode ?? ''} />
+              <PublishForm code={code} />
             ) : (
               <p className="m-0 text-[13px] leading-normal text-text-faint">Generate a scene first to publish it.</p>
             )}

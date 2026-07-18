@@ -84,7 +84,6 @@ export async function generateScene(prompt: string, image?: ReferenceImage): Pro
 export async function modifyScene(
   prompt: string,
   code: string,
-  blenderCode: string,
   image?: ReferenceImage,
   spec?: SceneSpec,
 ): Promise<GenerationResult> {
@@ -100,7 +99,7 @@ export async function modifyScene(
     'orchestrator.ts:modifyScene',
     { prompt, hasImage: !!image, hasSpec: !!spec, codeChars: code.length },
     async () => {
-      const result = await sceneAgent.modifyScene(client, prompt, code, blenderCode, image, spec);
+      const result = await sceneAgent.modifyScene(client, prompt, code, image, spec);
       const tunables = parseTunables(result.code);
       trace('orchestrator.ts:modifyScene', 'result', {
         codeChars: result.code.length,
@@ -149,11 +148,7 @@ export async function critiqueGeneratedScene(
   );
 }
 
-export async function animateScene(
-  prompt: string,
-  code: string,
-  blenderCode: string,
-): Promise<GenerationResult> {
+export async function animateScene(prompt: string, code: string): Promise<GenerationResult> {
   const client = getAnthropicClient();
   if (!client) {
     throw new Error(
@@ -161,6 +156,6 @@ export async function animateScene(
         'You can still edit the code directly in the editor.',
     );
   }
-  const result = await animationAgent.animateScene(client, prompt, code, blenderCode);
+  const result = await animationAgent.animateScene(client, prompt, code);
   return { ...result, tunables: parseTunables(result.code), source: 'model' };
 }

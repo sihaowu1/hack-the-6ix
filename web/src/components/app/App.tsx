@@ -36,6 +36,8 @@ export function App() {
             element={
               <VideoGenerationScreen
                 models={project.models}
+                aspectRatio={project.aspectRatio}
+                onAspectRatioChange={project.setAspectRatio}
                 tunables={project.tunables}
                 onParamChange={project.setParam}
                 mp4Job={project.mp4Job}
@@ -75,10 +77,10 @@ export function App() {
               <ExportScreen
                 models={project.models}
                 code={project.code}
-                blenderCode={project.blenderCode}
                 modelName={project.models.find((m) => m.id === project.activeModelId)?.name ?? 'Model'}
                 busy={project.busy}
                 onExportCode={project.exportCode}
+                onExportModel={project.exportModel}
                 onExportMp4={project.exportMp4}
                 tunables={project.tunables}
                 onParamChange={project.setParam}

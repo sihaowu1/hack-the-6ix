@@ -13,6 +13,7 @@ interface Props {
   onRenameModel: (modelId: string, newName: string) => void;
   onRenameLayer: (modelId: string, oldName: string, newName: string) => void;
   onDeleteLayer: (modelId: string, layerName: string) => void;
+  onDeleteModel: (modelId: string) => void;
 }
 
 type EditTarget =
@@ -37,6 +38,7 @@ export function ModelsLayersList({
   onRenameModel,
   onRenameLayer,
   onDeleteLayer,
+  onDeleteModel,
 }: Props) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editing, setEditing] = useState<EditTarget | null>(null);
@@ -113,6 +115,7 @@ export function ModelsLayersList({
           const active = model.id === activeModelId;
           const selected = selectedModelIds.includes(model.id);
           const isMerge = Boolean(model.childIds?.length);
+          const isBlender = Boolean(model.assetUrl);
           const childModels = (model.childIds ?? [])
             .map((id) => modelsById.get(id))
             .filter((m): m is SceneModel => Boolean(m));
@@ -190,6 +193,15 @@ export function ModelsLayersList({
                     </span>
                   )}
                 </button>
+                {isBlender && (
+                  <span
+                    className="flex-shrink-0 select-none rounded border border-border px-1.5 py-px text-[10px] font-medium leading-tight text-text-dim"
+                    title="Blender object"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    Blender
+                  </span>
+                )}
                 <button
                   type="button"
                   className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded border-none bg-transparent text-text-dim opacity-0 transition-opacity hover:bg-bg-hover hover:text-text group-hover/model:opacity-100 focus-visible:opacity-100"
@@ -201,6 +213,18 @@ export function ModelsLayersList({
                   }}
                 >
                   <PencilSimple size={12} weight="bold" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded border-none bg-transparent text-text-dim opacity-0 transition-opacity hover:bg-error/15 hover:text-error group-hover/model:opacity-100 focus-visible:opacity-100"
+                  title={`Delete ${model.name}`}
+                  aria-label={`Delete ${model.name}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onDeleteModel(model.id);
+                  }}
+                >
+                  <Trash size={12} weight="bold" aria-hidden="true" />
                 </button>
                 <span
                   className="min-w-[20px] flex-shrink-0 rounded-full border border-border bg-bg px-1.5 py-px text-center text-[11px] tabular-nums text-text-dim"
