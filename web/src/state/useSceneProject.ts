@@ -86,6 +86,7 @@ export function useSceneProject() {
   ]);
   const [activeModelId, setActiveModelId] = useState<string>(DEFAULT_MODEL_ID);
   const [clips, setClips] = useState<Clip[]>([]);
+  const [clipboardClip, setClipboardClip] = useState<Clip | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
   const [mp4Job, setMp4Job] = useState<Mp4JobState | null>(null);
@@ -255,6 +256,37 @@ export function useSceneProject() {
     [models],
   );
 
+  // Timeline right-click menu: delete removes a clip outright; copy stashes
+  // it in an in-memory clipboard; paste drops the stashed clip at the given
+  // whole second, replacing any clip already occupying that span (same
+  // overlap rule as `addClipAtSecond`).
+  const deleteClip = useCallback((id: string) => {
+    setClips((current) => current.filter((c) => c.id !== id));
+  }, []);
+
+  const copyClip = useCallback(
+    (id: string) => {
+      const clip = clips.find((c) => c.id === id);
+      if (clip) setClipboardClip(clip);
+    },
+    [clips],
+  );
+
+  const pasteClip = useCallback(
+    (second: number) => {
+      if (!clipboardClip) return;
+      const start = Math.max(0, Math.floor(second));
+      const duration = clipboardClip.duration;
+      setClips((current) =>
+        [
+          ...current.filter((c) => !(start < c.start + c.duration && start + duration > c.start)),
+          { ...clipboardClip, id: makeId(), start },
+        ].sort((a, b) => a.start - b.start),
+      );
+    },
+    [clipboardClip],
+  );
+
   const exportCode = useCallback(
     () =>
       run('Exporting code…', async () => {
@@ -351,6 +383,10 @@ export function useSceneProject() {
     setActiveModel,
     clips,
     addClipAtSecond,
+    deleteClip,
+    copyClip,
+    pasteClip,
+    hasClipboardClip: clipboardClip !== null,
     timelineClips,
     timelineTotal,
     playback,

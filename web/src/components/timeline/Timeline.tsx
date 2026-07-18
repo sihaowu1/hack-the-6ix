@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react';
-import type { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { Pause, Play, Rewind, SkipBack, SkipForward, FastForward } from '@phosphor-icons/react';
 import { PLAYBACK_RATES, type TimelinePlayback } from './useTimelinePlayback';
 import { deriveTimelineTotal, type TimelineClip } from './timelineMath';
@@ -18,6 +18,34 @@ export interface TimelineProps {
   playback: TimelinePlayback;
   /** Drops a material at the given whole second, dropped from the Materials list onto the track. */
   onDropModel?: (modelId: string, second: number) => void;
+  /** Deletes a clip (right-click menu → Delete). Omit to disable the context menu entirely. */
+  onDeleteClip?: (clipId: string) => void;
+  /** Stashes a clip in the clipboard (right-click menu → Copy). */
+  onCopyClip?: (clipId: string) => void;
+  /** Pastes the clipboard clip at the given whole second (right-click menu → Paste). */
+  onPasteClip?: (second: number) => void;
+  /** Whether a clip is currently in the clipboard, so Paste can be enabled/disabled. */
+  hasClipboardClip?: boolean;
+  /**
+   * Sets a clip's duration (drag-to-resize via the handle on its right edge).
+   * Only changes how long the clip is shown — `updateScene`'s `time` still
+   * advances at the same rate, so this never changes playback speed. A
+   * periodic animation keeps looping past its original length; a one-shot
+   * animation does whatever its own code does for large `time` values.
+   */
+  onResizeClip?: (clipId: string, duration: number) => void;
+}
+
+/** Floor on a clip's duration so a resize drag can never collapse it to zero width. */
+const MIN_CLIP_DURATION = 0.1;
+
+interface ContextMenuState {
+  x: number;
+  y: number;
+  /** The clip that was right-clicked, or undefined if the empty track was right-clicked. */
+  clipId?: string;
+  /** Timeline second under the right-click, used as the paste target. */
+  second: number;
 }
 
 /**
@@ -27,7 +55,16 @@ export interface TimelineProps {
  * other views — e.g. the video preview — can stay in lockstep with the same
  * playhead instead of Timeline keeping a private clock.
  */
-export function Timeline({ clips, totalDuration, playback, onDropModel }: TimelineProps) {
+export function Timeline({
+  clips,
+  totalDuration,
+  playback,
+  onDropModel,
+  onDeleteClip,
+  onCopyClip,
+  onPasteClip,
+  hasClipboardClip,
+}: TimelineProps) {
   const total = deriveTimelineTotal(clips, totalDuration);
   const {
     currentTime,
@@ -43,6 +80,22 @@ export function Timeline({ clips, totalDuration, playback, onDropModel }: Timeli
   } = playback;
   const trackRef = useRef<HTMLDivElement>(null);
   const [isDropTarget, setIsDropTarget] = useState(false);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const contextMenuEnabled = Boolean(onDeleteClip || onCopyClip || onPasteClip);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('keydown', closeOnEscape);
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') close();
+    }
+    return () => {
+      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [contextMenu]);
 
   function seekToClientX(clientX: number) {
     const el = trackRef.current;
@@ -74,6 +127,19 @@ export function Timeline({ clips, totalDuration, playback, onDropModel }: Timeli
     if (!modelId) return;
     event.preventDefault();
     onDropModel(modelId, timeAtClientX(event.clientX));
+  }
+
+  function handleTrackContextMenu(event: ReactMouseEvent<HTMLDivElement>) {
+    if (!contextMenuEnabled) return;
+    event.preventDefault();
+    setContextMenu({ x: event.clientX, y: event.clientY, second: timeAtClientX(event.clientX) });
+  }
+
+  function handleClipContextMenu(event: ReactMouseEvent<HTMLDivElement>, clipId: string) {
+    if (!contextMenuEnabled) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu({ x: event.clientX, y: event.clientY, clipId, second: timeAtClientX(event.clientX) });
   }
 
   function handleScrubberPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
@@ -110,6 +176,7 @@ export function Timeline({ clips, totalDuration, playback, onDropModel }: Timeli
         onDragOver={handleTrackDragOver}
         onDragLeave={() => setIsDropTarget(false)}
         onDrop={handleTrackDrop}
+        onContextMenu={handleTrackContextMenu}
       >
         <Ruler total={total} />
         <div
@@ -135,6 +202,7 @@ export function Timeline({ clips, totalDuration, playback, onDropModel }: Timeli
                   clip.start + clip.duration
                 ).toFixed(2)}s`}
                 className="absolute top-1 bottom-1 flex min-w-[2px] items-center overflow-hidden rounded-[3px] px-1.5 text-xs font-semibold text-[#0b0d12] shadow-[inset_0_0_0_1px_rgba(0,0,0,0.25)]"
+                onContextMenu={(event) => handleClipContextMenu(event, clip.id)}
                 style={{
                   left: `${leftPct}%`,
                   width: `${widthPct}%`,
@@ -154,6 +222,83 @@ export function Timeline({ clips, totalDuration, playback, onDropModel }: Timeli
           <div className="absolute -left-1 -top-1 h-2 w-2 rounded-full bg-accent" />
         </div>
       </div>
+      {contextMenu && (
+        <ClipContextMenu
+          state={contextMenu}
+          hasClipboardClip={Boolean(hasClipboardClip)}
+          onDelete={onDeleteClip}
+          onCopy={onCopyClip}
+          onPaste={onPasteClip}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+interface ClipContextMenuProps {
+  state: ContextMenuState;
+  hasClipboardClip: boolean;
+  onDelete?: (clipId: string) => void;
+  onCopy?: (clipId: string) => void;
+  onPaste?: (second: number) => void;
+  onClose: () => void;
+}
+
+/**
+ * Right-click menu for a timeline clip (or the empty track). Delete/Copy
+ * only apply when a clip was right-clicked; Paste always targets the
+ * timeline second under the click and is disabled without a clipboard clip.
+ */
+function ClipContextMenu({ state, hasClipboardClip, onDelete, onCopy, onPaste, onClose }: ClipContextMenuProps) {
+  const { x, y, clipId, second } = state;
+  const itemClass =
+    'block w-full cursor-pointer whitespace-nowrap border-0 bg-transparent px-3 py-1.5 text-left text-[13px] text-text hover:bg-bg-hover disabled:cursor-not-allowed disabled:text-text-dim disabled:hover:bg-transparent';
+
+  return (
+    <div
+      className="fixed z-50 min-w-[140px] rounded-md border border-border bg-bg-panel py-1 shadow-lg"
+      style={{ left: x, top: y }}
+      role="menu"
+      // Stop the outside-click-close listener from firing on the click that opens/selects a menu item.
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      <button
+        type="button"
+        role="menuitem"
+        className={itemClass}
+        disabled={!clipId || !onDelete}
+        onClick={() => {
+          if (clipId && onDelete) onDelete(clipId);
+          onClose();
+        }}
+      >
+        Delete
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        className={itemClass}
+        disabled={!clipId || !onCopy}
+        onClick={() => {
+          if (clipId && onCopy) onCopy(clipId);
+          onClose();
+        }}
+      >
+        Copy
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        className={itemClass}
+        disabled={!hasClipboardClip || !onPaste}
+        onClick={() => {
+          if (onPaste) onPaste(second);
+          onClose();
+        }}
+      >
+        Paste
+      </button>
     </div>
   );
 }
