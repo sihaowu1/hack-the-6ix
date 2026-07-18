@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { ASPECT_RATIOS, type AspectRatio, type TunableParam } from '@motionforge/shared';
 import { ControlsFloater } from '../controls/ControlsFloater';
@@ -7,10 +7,11 @@ import { AspectRatioBox } from '../layout/AspectRatioBox';
 import { ResizeHandle } from '../layout/ResizeHandle';
 import { useResizable } from '../layout/useResizable';
 import { MODEL_DRAG_TYPE, Timeline } from '../timeline/Timeline';
-import type { TimelineClip } from '../timeline/timelineMath';
+import type { TimelineClip, TimelineLane } from '../timeline/timelineMath';
 import type { TimelinePlayback } from '../timeline/useTimelinePlayback';
 import type { Mp4JobState, SceneModel } from '../../state/useSceneProject';
 import type { ObjectHandle } from '../../viewport/SceneRuntime';
+import type { TrackOverlay } from '../../viewport/trackOverlay';
 import type { ViewportHandle } from '../../viewport/Viewport';
 import { VideoPreview } from '../VideoPreview';
 import { PANEL_HEADER } from '../ui/Panel';
@@ -34,6 +35,11 @@ export interface VideoGenerationScreenProps {
   mp4Job: Mp4JobState | null;
   /** Timeline clips (from `useSceneProject.timelineClips`), rendered in the bottom row. */
   timelineClips: TimelineClip[];
+  timelineLanes: TimelineLane[];
+  collapsedLaneIds: Set<string>;
+  onToggleLane: (laneId: string) => void;
+  timelineFocusModelId: string;
+  onTimelineFocusModelChange: (modelId: string) => void;
   /** Timeline length in seconds (from `useSceneProject.timelineTotal`). */
   timelineTotal: number;
   /**
@@ -48,10 +54,11 @@ export interface VideoGenerationScreenProps {
   previewScenes?: Array<{ id: string; code: string }>;
   /** Playhead position local to the active clip (from `useSceneProject.previewTime`). */
   previewTime: number;
+  previewTrackOverlays: TrackOverlay[];
   /** Display name for whatever's under the playhead (from `useSceneProject.previewModelName`). */
   previewModelName: string;
   /**
-   * Drops a material onto the video preview: places a 1-second clip for
+   * Drops a material onto the video preview: places a clip for
    * `modelId` at whole-second `second` (from `useSceneProject.addClipAtSecond`).
    */
   onDropModel: (modelId: string, second: number) => void;
@@ -68,20 +75,19 @@ export interface VideoGenerationScreenProps {
   hasClipboardClip: boolean;
   /** Resizes a clip via its timeline drag handle (from `useSceneProject.resizeClip`). */
   onResizeClip: (clipId: string, duration: number) => void;
-  /** Optional slot for the chat pane (component not built yet — see SPEC.md Issue 4). */
+  onMoveClip: (clipId: string, start: number) => void;
+  /** Optional slot for the chat pane. */
   chat?: ReactNode;
 }
 
 /**
  * Screen 2 — Video Generation.
  *
- *   +------------+------------+------------------+
- *   | Chat       | Materials  |                  |
- *   | (top-left) | (from      |  Resulting Video |
- *   |            |  Screen 1) |  (top-right)     |
- *   +------------+------------+------------------+
- *   |              Timeline (full width)         |
- *   +--------------------------------------------+
+ *   +------+-----------+------------------+
+ *   | Chat | Materials | Resulting Video  |
+ *   +------+-----------+------------------+
+ *   |         Timeline (full width)       |
+ *   +-------------------------------------+
  */
 export function VideoGenerationScreen({
   models,
@@ -91,11 +97,17 @@ export function VideoGenerationScreen({
   onParamChange,
   mp4Job,
   timelineClips,
+  timelineLanes,
+  collapsedLaneIds,
+  onToggleLane,
+  timelineFocusModelId,
+  onTimelineFocusModelChange,
   timelineTotal,
   playback,
   previewCode,
   previewScenes,
   previewTime,
+  previewTrackOverlays,
   previewModelName,
   onDropModel,
   activeModelId,
@@ -105,6 +117,7 @@ export function VideoGenerationScreen({
   onPasteClip,
   hasClipboardClip,
   onResizeClip,
+  onMoveClip,
   chat,
 }: VideoGenerationScreenProps) {
   const [isDropTarget, setIsDropTarget] = useState(false);
@@ -114,21 +127,20 @@ export function VideoGenerationScreen({
   );
   const [axesVisible, setAxesVisible] = useState(false);
 
+  const timelineModelOptions = useMemo(
+    () => models.map((m) => ({ id: m.id, name: m.name })),
+    [models],
+  );
+
   const closeCameraEditor = () => {
     videoPreviewRef.current?.clearCameraOverride();
     setCameraEditor(null);
   };
 
-  // The scene under the playhead changed (different clip, AI modify) — the
-  // camera the editor was pointed at may no longer reflect what's on screen.
   useEffect(() => {
     setCameraEditor(null);
   }, [previewCode]);
 
-  // Re-applies the toggle whenever the live viewport (re)mounts — e.g. the
-  // timeline going from empty to occupied swaps in a fresh `Viewport`/
-  // `SceneRuntime` that starts with axes hidden. A code edit alone doesn't
-  // need this: `SceneRuntime` re-adds its own axes helper across rebuilds.
   useEffect(() => {
     videoPreviewRef.current?.setAxesVisible(axesVisible);
   }, [axesVisible, previewCode]);
@@ -225,6 +237,7 @@ export function VideoGenerationScreen({
                 onParamChange={onParamChange}
                 modelName={previewModelName}
                 time={previewTime}
+                trackOverlays={previewTrackOverlays}
               />
             </AspectRatioBox>
             {cameraEditor && (
@@ -255,6 +268,9 @@ export function VideoGenerationScreen({
         <Pane title="Timeline">
           <Timeline
             clips={timelineClips}
+            lanes={timelineLanes}
+            collapsedLaneIds={collapsedLaneIds}
+            onToggleLane={onToggleLane}
             totalDuration={timelineTotal}
             playback={playback}
             onDropModel={onDropModel}
@@ -263,6 +279,10 @@ export function VideoGenerationScreen({
             onPasteClip={onPasteClip}
             hasClipboardClip={hasClipboardClip}
             onResizeClip={onResizeClip}
+            onMoveClip={onMoveClip}
+            modelOptions={timelineModelOptions}
+            focusModelId={timelineFocusModelId}
+            onFocusModelChange={onTimelineFocusModelChange}
           />
         </Pane>
       </div>
@@ -275,7 +295,7 @@ function formatDropSecond(time: number): number {
 }
 
 /**
- * List of models generated on the Model Generation screen.
+ * List of models for the video screen.
  * Click selects the animation/edit target; drag onto the preview/timeline
  * places a clip (`MODEL_DRAG_TYPE`).
  */
@@ -303,25 +323,28 @@ function MaterialsList({
         return (
           <li
             key={m.id}
-            className={`flex cursor-grab items-center gap-2 rounded-lg border px-3 py-2 ${
+            className={`rounded-lg border ${
               isActive
                 ? 'border-accent bg-accent/10'
                 : 'border-border bg-bg-raised hover:border-border hover:bg-bg-raised/80'
             }`}
-            draggable
-            onClick={() => onSelectModel(m.id)}
-            onDragStart={(event) => {
-              event.dataTransfer.setData(MODEL_DRAG_TYPE, m.id);
-              event.dataTransfer.effectAllowed = 'copy';
-            }}
           >
-            <div className="h-8 w-8 flex-shrink-0 rounded-sm border border-border bg-bg" aria-hidden="true" />
-            <span className="overflow-hidden text-ellipsis whitespace-nowrap text-[14px] text-text" title={m.name}>
-              {m.name}
-              {m.childIds?.length ? (
-                <span className="ml-1 font-normal text-text-dim">· merge</span>
-              ) : null}
-            </span>
+            <div
+              className="flex cursor-grab items-center gap-2 px-3 py-2"
+              draggable
+              onClick={() => onSelectModel(m.id)}
+              onDragStart={(event) => {
+                event.dataTransfer.setData(MODEL_DRAG_TYPE, m.id);
+                event.dataTransfer.effectAllowed = 'copy';
+              }}
+            >
+              <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[14px] text-text" title={m.name}>
+                {m.name}
+                {m.childIds?.length ? (
+                  <span className="ml-1 font-normal text-text-dim">· merge</span>
+                ) : null}
+              </span>
+            </div>
           </li>
         );
       })}
@@ -342,10 +365,6 @@ function Pane({
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-bg-panel" aria-label={title}>
-      {/* Same muted mono title the Model and Export screens use, so a pane
-          header reads identically wherever you meet one. Header and body share
-          one horizontal inset — at px-4 over p-3 every pane's content sat 4px
-          left of its own title. */}
       <header className={`flex items-center justify-between gap-2 border-b border-border px-4 py-3 ${PANEL_HEADER}`}>
         <span>{title}</span>
         {actions}

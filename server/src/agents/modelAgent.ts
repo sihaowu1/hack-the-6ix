@@ -5,8 +5,8 @@ import { loadSkill } from '../ai/skills';
 import { extractFencedBlocks } from '../ai/extract';
 
 /**
- * The scene agent: prompts Claude (with the threejs-modelling skill as its
- * system prompt) to write a component-based Three.js scene module, validates
+ * The model agent: prompts Claude (with the threejs-modelling skill as its
+ * system prompt) to write a component-based Three.js model module, validates
  * the result against the module contract, and retries once with the
  * validator's feedback if the contract was violated.
  */
@@ -80,7 +80,7 @@ Use this full analysis to drive the PARAMS values (sizes, proportions, colors, m
 and the geometry/hierarchy choices in buildScene. The result should be a faithful procedural
 reconstruction of the subject, not a vague approximation.`;
 
-export interface SceneCode {
+export interface ModelCode {
   code: string;
 }
 
@@ -99,11 +99,11 @@ function buildUserContent(
   ];
 }
 
-export async function generateScene(
+export async function generateModel(
   client: Anthropic,
   prompt: string,
   image?: ReferenceImage,
-): Promise<SceneCode> {
+): Promise<ModelCode> {
   const text = image
     ? `Reconstruct the object in this reference image as a procedural Three.js model.\n\n` +
       `User instruction: ${prompt}\n\n` +
@@ -121,12 +121,12 @@ export async function generateScene(
   return completeWithRetry(client, messages, !!image);
 }
 
-export async function modifyScene(
+export async function modifyModel(
   client: Anthropic,
   prompt: string,
   code: string,
   image?: ReferenceImage,
-): Promise<SceneCode> {
+): Promise<ModelCode> {
   const text = image
     ? `Modify the current Three.js model to better match this reference image.\n\n` +
       `Instruction: ${prompt}\n\n` +
@@ -152,7 +152,7 @@ async function completeWithRetry(
   client: Anthropic,
   messages: Anthropic.MessageParam[],
   hasImage = false,
-): Promise<SceneCode> {
+): Promise<ModelCode> {
   let errors: string[] = [];
   for (let attempt = 0; attempt < 2; attempt++) {
     const stream = client.messages.stream({
@@ -161,12 +161,12 @@ async function completeWithRetry(
       thinking: { type: 'adaptive' },
       system: hasImage
         ? `${loadSkill('img2threejs')}\n\n${IMAGE_ANALYSIS_ADDENDUM}\n\n${loadSkill('camera-composition')}`
-        : `${loadSkill('scene-generation')}\n\n${loadSkill('camera-composition')}`,
+        : `${loadSkill('threejs-modelling')}\n\n${loadSkill('camera-composition')}`,
       messages,
     });
     const response = await stream.finalMessage();
     if (response.stop_reason === 'refusal') {
-      throw new Error('The model declined to generate this scene. Try a different prompt.');
+      throw new Error('The model declined to generate this model. Try a different prompt.');
     }
     const text = response.content
       .filter((block): block is Anthropic.TextBlock => block.type === 'text')

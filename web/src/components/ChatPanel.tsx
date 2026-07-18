@@ -26,7 +26,8 @@ interface Props {
   busy: string | null;
   status: Status | null;
   onGenerate: (prompt: string, image?: ReferenceImage) => void;
-  onModify: (prompt: string, image?: ReferenceImage) => void;
+  /** Omit or set showModify=false on Video — Enter then runs Generate/Animate. */
+  onModify?: (prompt: string, image?: ReferenceImage) => void;
   /** Primary action label (default Generate). Video screen uses Animate. */
   generateLabel?: string;
   modifyLabel?: string;
@@ -38,6 +39,10 @@ interface Props {
    * a bug.
    */
   showTitle?: boolean;
+  /** When false, hide camera/upload/paste image attachment (Video screen). */
+  allowImageAttachment?: boolean;
+  /** When false, hide Modify and make Enter/submit run Generate (Video screen). */
+  showModify?: boolean;
 }
 
 const ACCEPTED_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
@@ -82,8 +87,10 @@ export function ChatPanel({
   modifyLabel = 'Modify',
   placeholder = 'Ask to modify the model, or generate a new one…',
   emptyHint =
-    "Generate builds a new scene. Modify edits the one you're looking at. You can also attach or capture a reference image.",
+    "Generate builds a new model. Modify edits the one you're looking at. You can also attach or capture a reference image.",
   showTitle = true,
+  allowImageAttachment = true,
+  showModify = true,
 }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -94,6 +101,9 @@ export function ChatPanel({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+
+  const canModify = showModify && typeof onModify === 'function';
+  const primaryKind: 'generate' | 'modify' = canModify ? 'modify' : 'generate';
 
   useEffect(() => {
     const isBusy = busy !== null;
@@ -121,7 +131,7 @@ export function ChatPanel({
   const disabled = busy !== null || input.trim() === '';
 
   const handleFile = async (file: File) => {
-    if (!ACCEPTED_TYPES.has(file.type)) return;
+    if (!allowImageAttachment || !ACCEPTED_TYPES.has(file.type)) return;
     try {
       const result = await fileToReferenceImage(file);
       setAttachedImage(result);
@@ -167,7 +177,7 @@ export function ChatPanel({
   const send = (kind: 'generate' | 'modify') => {
     const prompt = input.trim();
     if (!prompt) return;
-    const image = attachedImage;
+    const image = allowImageAttachment ? attachedImage : null;
     setMessages((prev) => [
       ...prev,
       { id: makeId(), role: 'user', text: prompt, imagePreview: image?.dataUrl },
@@ -175,20 +185,20 @@ export function ChatPanel({
     setInput('');
     setAttachedImage(null);
     if (kind === 'generate') onGenerate(prompt, image?.ref);
-    else onModify(prompt, image?.ref);
+    else onModify?.(prompt, image?.ref);
   };
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2.5">
       {showTitle && (
         <h2 className={`flex-none ${PANEL_HEADER}`}>
-          Scene chat
+          Model chat
         </h2>
       )}
       <div ref={listRef} className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto pr-1">
-        {/* No empty-state copy: the input's own placeholder already says what
-            to type, and the two buttons name what they do. A paragraph
-            explaining them was a third statement of the same thing. */}
+        {messages.length === 0 && emptyHint && (
+          <p className="px-1 text-[13px] leading-snug text-text-faint">{emptyHint}</p>
+        )}
         {messages.map((m) => (
           <div
             key={m.id}
@@ -211,8 +221,7 @@ export function ChatPanel({
         {busy !== null && <div className="self-start px-1 py-1 text-[14px] italic text-text-dim">{busy}</div>}
       </div>
 
-      {/* Camera viewfinder */}
-      {cameraOpen && (
+      {allowImageAttachment && cameraOpen && (
         <div className="flex flex-col items-center gap-1.5 rounded border border-border bg-bg-raised p-2">
           <video
             ref={videoRef}
@@ -232,17 +241,14 @@ export function ChatPanel({
         </div>
       )}
 
-      {/* Field and actions share one bordered container so the composer reads
-          as a single command box. The border lives here, and the textarea
-          inside it is chromeless, rather than each part drawing its own edge. */}
       <form
         className={`flex flex-shrink-0 flex-col ${COMPOSER}`}
         onSubmit={(event) => {
           event.preventDefault();
-          if (!disabled) send('modify');
+          if (!disabled) send(primaryKind);
         }}
       >
-        {attachedImage && (
+        {allowImageAttachment && attachedImage && (
           <div className="flex items-center gap-2 rounded border border-border bg-bg-raised px-2 py-1">
             <img src={attachedImage.dataUrl} alt="Attached" className="h-10 rounded" />
             <span className="flex-1 truncate text-[12px] text-text-dim">Image attached</span>
@@ -266,10 +272,11 @@ export function ChatPanel({
           onKeyDown={(event) => {
             if (event.key === 'Enter' && !event.shiftKey && !disabled) {
               event.preventDefault();
-              send('modify');
+              send(primaryKind);
             }
           }}
           onPaste={(event) => {
+            if (!allowImageAttachment) return;
             const items = event.clipboardData?.items;
             if (!items) return;
             for (const item of items) {
@@ -284,53 +291,72 @@ export function ChatPanel({
             }
           }}
         />
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/jpeg,image/png,image/gif,image/webp"
-          className="hidden"
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (file) handleFile(file);
-            event.target.value = '';
-          }}
-        />
+        {allowImageAttachment && (
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/gif,image/webp"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) handleFile(file);
+              event.target.value = '';
+            }}
+          />
+        )}
         <div className="flex items-center justify-end gap-1.5 px-1.5 pb-1.5">
-          <IconButton
-            disabled={busy !== null}
-            onClick={openCamera}
-            title="Take a photo with your camera"
-            aria-label="Camera"
-            className="p-2"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
-          </IconButton>
-          <IconButton
-            disabled={busy !== null}
-            onClick={() => fileInputRef.current?.click()}
-            title="Upload a reference image"
-            aria-label="Upload image"
-            className="p-2"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-          </IconButton>
-          <Button
-            variant="ghost"
-            type="button"
-            disabled={disabled}
-            title="Build a new model from this prompt"
-            onClick={() => send('generate')}
-          >
-            {generateLabel}
-          </Button>
-          <Button
-            variant="primary"
-            type="submit"
-            disabled={disabled}
-            title="Edit the current model (Enter)"
-          >
-            {modifyLabel}
-          </Button>
+          {allowImageAttachment && (
+            <>
+              <IconButton
+                disabled={busy !== null}
+                onClick={openCamera}
+                title="Take a photo with your camera"
+                aria-label="Camera"
+                className="p-2"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
+              </IconButton>
+              <IconButton
+                disabled={busy !== null}
+                onClick={() => fileInputRef.current?.click()}
+                title="Upload a reference image"
+                aria-label="Upload image"
+                className="p-2"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              </IconButton>
+            </>
+          )}
+          {canModify ? (
+            <>
+              <Button
+                variant="ghost"
+                type="button"
+                disabled={disabled}
+                title="Build a new model from this prompt"
+                onClick={() => send('generate')}
+              >
+                {generateLabel}
+              </Button>
+              <Button
+                variant="primary"
+                type="submit"
+                disabled={disabled}
+                title="Edit the current model (Enter)"
+              >
+                {modifyLabel}
+              </Button>
+            </>
+          ) : (
+            <Button
+              variant="primary"
+              type="submit"
+              disabled={disabled}
+              title={`${generateLabel} for the selected object (Enter)`}
+            >
+              {generateLabel}
+            </Button>
+          )}
         </div>
       </form>
     </div>

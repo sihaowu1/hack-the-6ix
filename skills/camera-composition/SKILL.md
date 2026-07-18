@@ -1,6 +1,6 @@
 ---
 name: camera-composition
-description: Turn a user's prompt into concrete 3D object placement and camera position/lookAt/fov so the rendered frame actually shows what was asked for. Use together with scene-generation whenever building or reframing a Zendai scene — especially when the prompt implies a shot type ("close-up", "from above", "wide shot") or a spatial layout ("X next to Y", "Z in the background").
+description: Turn a user's prompt into concrete 3D object placement and camera position/lookAt/fov so the rendered frame actually shows what was asked for. Use together with threejs-modelling whenever building or reframing a Zendai model — especially when the prompt implies a shot type ("close-up", "from above", "wide shot") or a spatial layout ("X next to Y", "Z in the background").
 ---
 
 # Camera & Blocking Skill
@@ -11,7 +11,7 @@ and where you put the camera (`CAMERA`). This skill turns a natural-language
 prompt into both, deliberately, instead of leaving the camera at a generic
 default that happens to point at the origin.
 
-Use this skill alongside `scene-generation`'s module contract: it governs
+Use this skill alongside `threejs-modelling`'s module contract: it governs
 *where things go and what the camera does*, not the export format.
 
 ## Coordinate system
@@ -85,7 +85,7 @@ Read the prompt for three kinds of information, even when it's terse:
      concern, but it changes how much clearance the camera needs).
    - "scattered / a field of" → distribute with a **seeded** pseudo-random
      placement (never `Math.random()` — `updateScene`/`buildScene` must stay
-     deterministic per the scene-generation contract) over a bounded area.
+     deterministic per the threejs-modelling contract) over a bounded area.
 3. **Shot type** — explicit ("close-up", "wide shot", "overhead", "from
    below", "over-the-shoulder"-style framing) or implied by mood ("epic",
    "intimate", "looming", "dwarfed by"). If the prompt gives no shot type,

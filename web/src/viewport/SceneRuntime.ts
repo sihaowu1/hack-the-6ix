@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { validateSceneModule, type SceneModule } from '@motionforge/shared';
+import { applyTrackOverlays, type TrackOverlay } from './trackOverlay';
 
 /** A clicked object's position (units), left/right yaw (`angle`, Y-axis) and up/down pitch (`pitch`, X-axis), both in degrees. */
 export interface ObjectTransform {
@@ -36,8 +37,8 @@ interface LoadedEntry {
   objects: unknown;
 }
 
-/** Horizontal gap (world units) between co-viewed models on the shared ground plane. */
-const MERGE_SPACING = 4;
+/** Horizontal gap (world units) between co-viewed models after bbox packing. */
+const MERGE_GAP = 0.5;
 
 /**
  * Wrap a PARAMS object so undefined/NaN numeric reads fall back to 0, preventing
@@ -78,6 +79,12 @@ export class SceneRuntime {
   private frameErrorReported = false;
   /** When set, `updateScene` is driven by this instead of the free-running wall clock (see `setTime`). */
   private controlledTime: number | null = null;
+  /**
+   * Optional per-part track overlays for multi-clip timeline playback. When
+   * non-empty, `updateScene` runs at rest (`time = 0`) for PARAMS, then these
+   * overlays write joint transforms for independently scheduled part clips.
+   */
+  private trackOverlays: TrackOverlay[] = [];
   private raycaster = new THREE.Raycaster();
   private pointerDownPos: { x: number; y: number } | null = null;
   /**
@@ -161,6 +168,10 @@ export class SceneRuntime {
    */
   setTime(time: number): void {
     this.controlledTime = time;
+  }
+
+  setTrackOverlays(overlays: TrackOverlay[]): void {
+    this.trackOverlays = overlays;
   }
 
   setGridVisible(visible: boolean): void {
@@ -343,18 +354,25 @@ export class SceneRuntime {
     }
     if (primary?.CAMERA?.lookAt) this.controls.target.set(...primary.CAMERA.lookAt);
 
-    // Pull the camera back a bit when several models share the plane.
-    if (loaded.length > 1) {
-      const span = (loaded.length - 1) * MERGE_SPACING;
-      this.camera.position.x = 0;
-      this.camera.position.z = Math.max(this.camera.position.z, 5.5 + span * 0.45);
-      this.controls.target.set(0, 0.8, 0);
+    // Guarantee a writable Color before any module updateScene runs.
+    if (!this.scene.background || typeof (this.scene.background as { set?: unknown }).set !== 'function') {
+      this.scene.background = new THREE.Color(0x0b0d12);
     }
+
+    const placed: Array<{
+      id: string;
+      module: SceneModule;
+      objects: unknown;
+      group: THREE.Group;
+      width: number;
+      minY: number;
+      centerX: number;
+    }> = [];
 
     for (let i = 0; i < loaded.length; i++) {
       const { id, module } = loaded[i];
       const before = new Set(this.scene.children);
-      const backgroundBefore = this.scene.background;
+      const backgroundBefore: THREE.Color | THREE.Texture | null = this.scene.background;
 
       try {
         const objects = module.buildScene({
@@ -366,7 +384,6 @@ export class SceneRuntime {
         const added = this.scene.children.filter((child) => !before.has(child));
         const group = new THREE.Group();
         group.name = `merge:${id}`;
-        group.position.x = (i - (loaded.length - 1) / 2) * MERGE_SPACING;
         for (const obj of added) {
           this.scene.remove(obj);
           group.add(obj);
@@ -376,10 +393,38 @@ export class SceneRuntime {
         // Keep the first module's background; later modules may overwrite it.
         if (i > 0) this.scene.background = backgroundBefore;
 
-        this.entries.push({ id, module, objects });
+        group.updateWorldMatrix(true, true);
+        const box = new THREE.Box3().setFromObject(group);
+        const width = Math.max(box.max.x - box.min.x, 0.01);
+        const centerX = (box.min.x + box.max.x) / 2;
+        const minY = Number.isFinite(box.min.y) ? box.min.y : 0;
+
+        placed.push({ id, module, objects, group, width, minY, centerX });
       } catch (err) {
         this.onError(err instanceof Error ? err : new Error(String(err)));
       }
+    }
+
+    // Auto-space by bounding box on the ground plane (Y = 0), centered on X.
+    let cursor = 0;
+    const xOffsets: number[] = [];
+    for (const p of placed) {
+      xOffsets.push(cursor + p.width / 2 - p.centerX);
+      cursor += p.width + MERGE_GAP;
+    }
+    const totalSpan = placed.length > 0 ? cursor - MERGE_GAP : 0;
+    const shift = -totalSpan / 2;
+    for (let i = 0; i < placed.length; i++) {
+      const p = placed[i];
+      p.group.position.x = xOffsets[i] + shift;
+      p.group.position.y = -p.minY;
+      this.entries.push({ id: p.id, module: p.module, objects: p.objects });
+    }
+
+    if (placed.length > 1) {
+      this.camera.position.x = 0;
+      this.camera.position.z = Math.max(this.camera.position.z, 5.5 + totalSpan * 0.45);
+      this.controls.target.set(0, 0.8, 0);
     }
 
     // Framing is settled by this point (module CAMERA plus the merge pull-back),
@@ -421,7 +466,17 @@ export class SceneRuntime {
   }
 
   private loop(now: number): void {
-    const time = this.controlledTime !== null ? this.controlledTime : (now - this.startMs) / 1000;
+    const useOverlays = this.trackOverlays.length > 0;
+    const time = useOverlays
+      ? 0
+      : this.controlledTime !== null
+        ? this.controlledTime
+        : (now - this.startMs) / 1000;
+    // Modules often call `scene.background.set(...)` in updateScene; a fresh
+    // THREE.Scene starts with background=null, which throws.
+    if (!this.scene.background || typeof (this.scene.background as { set?: unknown }).set !== 'function') {
+      this.scene.background = new THREE.Color(0x0b0d12);
+    }
     for (const entry of this.entries) {
       try {
         entry.module.updateScene({
@@ -431,6 +486,7 @@ export class SceneRuntime {
           params: safeguardParams(entry.module.PARAMS),
           time,
         });
+        if (useOverlays) applyTrackOverlays(entry.objects, this.trackOverlays);
       } catch (err) {
         if (!this.frameErrorReported) {
           this.frameErrorReported = true;

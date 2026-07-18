@@ -4,6 +4,11 @@ import {
   DEFAULT_ASPECT_RATIO,
   DEFAULT_SCENE_CODE,
   deleteLayer as deleteLayerInCode,
+  fuseSceneModules,
+  parseAnimationDuration,
+  parseAnimationName,
+  parseAnimationPartNames,
+  parseAnimationTracks,
   parseTunables,
   patchParam,
   renameLayer as renameLayerInCode,
@@ -12,21 +17,21 @@ import {
   type RenderSettings,
 } from '@motionforge/shared';
 import * as api from '../api/client';
-import { deriveTimelineTotal, MIN_CLIP_DURATION, type TimelineClip } from '../components/timeline/timelineMath';
+import {
+  deriveTimelineTotal,
+  MIN_CLIP_DURATION,
+  type TimelineClip,
+  type TimelineLane,
+} from '../components/timeline/timelineMath';
 import { useTimelinePlayback } from '../components/timeline/useTimelinePlayback';
+import type { TrackOverlay } from '../viewport/trackOverlay';
 
 /**
  * All editor state in one hook.
  *
- * The state holds an array of generated models (per SPEC.md Issue 2). One is
- * "active" at any time; `code`/`tunables` are derived from it, and edits
- * (setCode/setParam/modify) update the active model in place. This is the
- * single source of truth for both the Model screen's
- * viewport/editor and the Video screen's Materials pane.
- *
- * The state also holds an array of timeline clips. Every completed MP4 render
- * appends one clip for the active model so the Timeline on the Video screen
- * reflects rendered scenes without any separate bookkeeping.
+ * Each model may hold one animation duplicate (`animation`) so motion never
+ * mutates the frozen base `code`. Merges are real fused modules (`code` is one
+ * scene on a shared plane); `childIds` remain for hierarchy UI.
  */
 
 export interface Status {
@@ -43,33 +48,49 @@ export interface Mp4JobState {
   error?: string;
 }
 
-/** A single generated scene: source of truth for both editors, viewport, and Materials pane. */
+/** One animated duplicate of a model's base module (does not mutate `code`). */
+export interface AnimationInstance {
+  id: string;
+  name: string;
+  duration: number;
+  code: string;
+  parts: string[];
+  createdAt: number;
+}
+
+/** A single generated model: source of truth for both editors, viewport, and Materials pane. */
 export interface SceneModel {
   id: string;
   name: string;
   code: string;
   createdAt: number;
   /**
-   * When set, this row is a co-view merge of other models. Children stay
-   * independent (not constrained); the viewport places them side-by-side on
-   * the same ground plane. `code` mirrors the first child so
-   * export/modify/tunables still have a primary target.
+   * When set, this row is a merge of other models. `code` is the real fused
+   * module (animatable); `childIds` are kept for hierarchy UI.
    */
   childIds?: string[];
+  /**
+   * The one animated duplicate for this model. Regenerating replaces it;
+   * the base `code` stays frozen.
+   */
+  animation?: AnimationInstance;
 }
 
-/** A rendered scene placed on the Video screen's timeline. */
+/** A timeline clip on a hierarchical part lane. */
 export interface Clip {
   id: string;
   modelId: string;
+  animationId: string;
+  part: string;
   label: string;
   /** Seconds from t=0 on the timeline. */
   start: number;
-  /** Length of the clip in seconds (matches the render's durationInSeconds). */
+  /** Length of the clip in seconds. */
   duration: number;
 }
 
 const DEFAULT_MODEL_ID = 'default';
+const WHOLE_PART = '__whole__';
 
 function makeDefaultModel(): SceneModel {
   return {
@@ -92,68 +113,40 @@ function nameFromPrompt(prompt: string, fallbackIndex: number): string {
   return first.length > 42 ? `${first.slice(0, 42)}…` : first;
 }
 
-/** Read `ANIMATION.duration` from a scene module when present. */
-function parseAnimationDuration(code: string): number | undefined {
-  const match = code.match(
-    /export\s+const\s+ANIMATION\s*=\s*\{[\s\S]*?\bduration\s*:\s*([0-9]*\.?[0-9]+)/,
-  );
-  if (!match) return undefined;
-  const duration = Number(match[1]);
-  return Number.isFinite(duration) && duration > 0 ? duration : undefined;
-}
-
-/**
- * Pick which model to animate: a model whose name appears in the prompt
- * (longest match wins), else the active/selected model. Merge rows resolve
- * to their first child so animation targets a real scene module.
- */
+/** Animate always targets the Materials selection (`activeModelId`). */
 function resolveModelForAnimation(
-  prompt: string,
   models: SceneModel[],
   activeModelId: string,
 ): SceneModel | undefined {
-  const lower = prompt.toLowerCase();
-  const named = [...models]
-    .filter((m) => m.name.trim().length > 0)
-    .sort((a, b) => b.name.length - a.name.length)
-    .find((m) => lower.includes(m.name.toLowerCase()));
+  return models.find((m) => m.id === activeModelId) ?? models[0];
+}
 
-  const pick = named ?? models.find((m) => m.id === activeModelId) ?? models[0];
-  if (!pick) return undefined;
-  if (pick.childIds?.length) {
-    return models.find((m) => m.id === pick.childIds![0]) ?? pick;
-  }
-  return pick;
+function clipsOverlap(aStart: number, aDur: number, bStart: number, bDur: number): boolean {
+  return aStart < bStart + bDur && aStart + aDur > bStart;
 }
 
 export function useSceneProject() {
-  // A default model is seeded so the app has valid code before the first generation.
   const [models, setModels] = useState<SceneModel[]>(() => [makeDefaultModel()]);
   const [activeModelId, setActiveModelId] = useState<string>(DEFAULT_MODEL_ID);
-  /** Shift-click multi-select for building a merge; always includes the active id when non-empty. */
   const [selectedModelIds, setSelectedModelIds] = useState<string[]>([DEFAULT_MODEL_ID]);
+  const [selectedLayer, setSelectedLayer] = useState<string | null>(null);
   const [clips, setClips] = useState<Clip[]>([]);
   const [clipboardClip, setClipboardClip] = useState<Clip | null>(null);
+  const [collapsedLanes, setCollapsedLanes] = useState<Set<string>>(() => new Set());
+  const [timelineFocusModelId, setTimelineFocusModelId] = useState<string>(DEFAULT_MODEL_ID);
   const [busy, setBusy] = useState<string | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
   const [mp4Job, setMp4Job] = useState<Mp4JobState | null>(null);
-  // The Video Generation screen's aspect-ratio dropdown. Purely a display
-  // concern here: it only controls how the live preview is letterboxed
-  // (`AspectRatioBox`) and is not wired into generate/modify — see
-  // `server/src/agents/aspectRatioComposition.ts` for the (currently unused)
-  // code that would pass this to the camera-composition skill.
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(DEFAULT_ASPECT_RATIO);
   const pollRef = useRef<number | null>(null);
 
-  // The active model backs the editor/viewport. It always resolves to a real
-  // model even if `activeModelId` points to something that was removed later.
   const activeModel = useMemo(
     () => models.find((m) => m.id === activeModelId) ?? models[0],
     [models, activeModelId],
   );
   const code = activeModel.code;
 
-  /** Scene modules the Model-screen viewport should co-render (one entry, or several for a merge). */
+  /** Merges resolve to child scene entries for co-view placement. */
   const viewportScenes = useMemo(
     () => resolveViewportScenes(activeModel, models),
     [activeModel, models],
@@ -167,32 +160,119 @@ export function useSceneProject() {
     }
   }, [code]);
 
-  // Single shared playhead for the whole app: the Video Generation and
-  // Export screens both render a `Timeline` against this same clock and
-  // preview the same derived clip, so scrubbing/playing on one screen stays
-  // in lockstep on the other instead of each screen re-deriving its own.
-  const timelineClips = useMemo<TimelineClip[]>(
-    () => clips.map((c) => ({ id: c.id, label: c.label, start: c.start, duration: c.duration })),
-    [clips],
+  const timelineLanes = useMemo(
+    () => buildTimelineLanes(models, clips),
+    [models, clips],
   );
+
+  const focusedTimelineLanes = useMemo(() => {
+    const focusId = timelineFocusModelId || activeModelId;
+    return timelineLanes.filter((lane) => lane.modelId === focusId);
+  }, [timelineLanes, timelineFocusModelId, activeModelId]);
+
+  const visibleLanes = useMemo(() => {
+    return focusedTimelineLanes.filter((lane) => {
+      if (!lane.parentId) return true;
+      let parentId: string | undefined = lane.parentId;
+      while (parentId) {
+        if (collapsedLanes.has(parentId)) return false;
+        const parent = focusedTimelineLanes.find((l) => l.id === parentId);
+        parentId = parent?.parentId;
+      }
+      return true;
+    });
+  }, [focusedTimelineLanes, collapsedLanes]);
+
+  const timelineClips = useMemo<TimelineClip[]>(() => {
+    const focusId = timelineFocusModelId || activeModelId;
+    return clips
+      .filter((c) => c.modelId === focusId)
+      .map((c) => ({
+        id: c.id,
+        label: c.label,
+        start: c.start,
+        duration: c.duration,
+        // One track per model (or merge parent); no per-part lanes.
+        laneId: c.modelId,
+      }));
+  }, [clips, timelineFocusModelId, activeModelId]);
   const timelineTotal = useMemo(() => deriveTimelineTotal(timelineClips), [timelineClips]);
   const playback = useTimelinePlayback(timelineTotal);
 
-  // Which clip (and therefore which model's code) is under the playhead
-  // right now. Clips are assumed never to overlap — at most one model per
-  // timeline second — so the first match is the only match.
-  const activeClip = useMemo(
-    () => clips.find((c) => playback.currentTime >= c.start && playback.currentTime < c.start + c.duration),
+  const activeClips = useMemo(
+    () =>
+      clips.filter(
+        (c) => playback.currentTime >= c.start && playback.currentTime < c.start + c.duration,
+      ),
     [clips, playback.currentTime],
   );
-  const previewModel = activeClip ? models.find((m) => m.id === activeClip.modelId) : undefined;
-  const previewScenes = useMemo(
-    () => (previewModel ? resolveViewportScenes(previewModel, models) : []),
-    [previewModel, models],
-  );
-  const previewCode = previewScenes[0]?.code ?? previewModel?.code;
-  const previewTime = activeClip ? playback.currentTime - activeClip.start : playback.currentTime;
-  const previewModelName = previewModel?.name ?? activeModel.name;
+
+  const previewModel = useMemo(() => {
+    if (activeClips.length === 0) return activeModel;
+    const modelId = activeClips[0].modelId;
+    return models.find((m) => m.id === modelId) ?? activeModel;
+  }, [activeClips, activeModel, models]);
+
+  const previewScenes = useMemo(() => {
+    // When a timeline clip is active we drive preview from the animation
+    // module via `previewCode` alone — don't co-view the frozen base model.
+    if (activeClips.length > 0) return [];
+    return resolveViewportScenes(previewModel, models);
+  }, [activeClips.length, previewModel, models]);
+
+  const { previewCode, previewTime, previewTrackOverlays } = useMemo(() => {
+    if (activeClips.length === 0) {
+      return {
+        previewCode: previewModel.code,
+        previewTime: 0,
+        previewTrackOverlays: [] as TrackOverlay[],
+      };
+    }
+
+    // Prefer playing the saved animation module itself (duplicate with motion).
+    // Track overlays on the frozen base model often no-op when the AI inserted
+    // pivots or renamed parts only in the animation duplicate.
+    const primary = activeClips[0];
+    const primaryModel = models.find((m) => m.id === primary.modelId);
+    const primaryAnim =
+      primaryModel?.animation?.id === primary.animationId ? primaryModel.animation : undefined;
+    if (primaryAnim) {
+      return {
+        previewCode: primaryAnim.code,
+        previewTime: Math.max(0, playback.currentTime - primary.start),
+        previewTrackOverlays: [] as TrackOverlay[],
+      };
+    }
+
+    // Fallback: host-side overlays when the animation instance is missing.
+    const overlays: TrackOverlay[] = [];
+    for (const clip of activeClips) {
+      const model = models.find((m) => m.id === clip.modelId);
+      const anim = model?.animation?.id === clip.animationId ? model.animation : undefined;
+      if (!anim) continue;
+      const localTime = playback.currentTime - clip.start;
+      const tracks = parseAnimationTracks(anim.code).filter(
+        (t) => clip.part === WHOLE_PART || t.part === clip.part,
+      );
+      for (const track of tracks) {
+        overlays.push({
+          part: track.part,
+          channel: track.channel,
+          axis: track.axis,
+          keyframes: track.keyframes,
+          localTime,
+        });
+      }
+    }
+
+    return {
+      previewCode: previewModel.code,
+      previewTime: 0,
+      previewTrackOverlays: overlays,
+    };
+  }, [activeClips, models, playback.currentTime, previewModel]);
+
+  const previewModelName = previewModel.name;
 
   useEffect(
     () => () => {
@@ -213,9 +293,6 @@ export function useSceneProject() {
     }
   }, []);
 
-  // Patch just the active model in the array. Accepts either a value or an
-  // updater function, matching React's `setState` shape so external callers
-  // can use `(current) => …` when they only have the current-active value.
   const setCode: Dispatch<SetStateAction<string>> = useCallback(
     (next) => {
       setModels((current) =>
@@ -245,6 +322,8 @@ export function useSceneProject() {
         ]);
         setActiveModelId(id);
         setSelectedModelIds([id]);
+        setSelectedLayer(null);
+        setTimelineFocusModelId(id);
         setStatus({
           kind: 'info',
           text:
@@ -276,57 +355,81 @@ export function useSceneProject() {
   );
 
   /**
-   * Video-screen Generate: run the animation skill against the model named
-   * in the prompt, or the active selection if none is named.
+   * Video-screen Generate: animate/compose the Materials-selected model.
+   * Writes a duplicated animated module to `animation`; never mutates
+   * the base `model.code` (Model-screen source stays frozen). Regenerating
+   * replaces the single animation for that model.
    */
   const animate = useCallback(
     (prompt: string) =>
-      run('Animating model…', async () => {
-        const target = resolveModelForAnimation(prompt, models, activeModelId);
+      run('Animating…', async () => {
+        const target = resolveModelForAnimation(models, activeModelId);
         if (!target) {
           throw new Error('No model available to animate. Generate a model on the Model screen first.');
         }
-        const result = await api.animate(prompt, target.code);
+
+        const focused =
+          selectedLayer && activeModelId === target.id
+            ? `${prompt}\n\nFocus on part/layer: ${selectedLayer}.`
+            : prompt;
+
+        // Always animate from the pristine base module (including fused merges).
+        const result = await api.animate(focused, target.code, aspectRatio);
+        const duration = parseAnimationDuration(result.code) ?? 3;
+        const name = parseAnimationName(result.code) ?? nameFromPrompt(prompt, 1);
+        const parts = parseAnimationPartNames(result.code);
+        const partList =
+          parts.length > 0
+            ? parts
+            : selectedLayer
+              ? [selectedLayer]
+              : [WHOLE_PART];
+
+        const animationId = makeId();
+        const instance: AnimationInstance = {
+          id: animationId,
+          name,
+          duration,
+          code: result.code,
+          parts: partList,
+          createdAt: Date.now(),
+        };
+
         setModels((current) =>
-          current.map((m) =>
-            m.id === target.id
-              ? {
-                  ...m,
-                  code: result.code,
-                }
-              : m,
-          ),
+          current.map((m) => (m.id === target.id ? { ...m, animation: instance } : m)),
         );
         setActiveModelId(target.id);
         setSelectedModelIds([target.id]);
+        setTimelineFocusModelId(target.id);
 
-        const duration = parseAnimationDuration(result.code) ?? 3;
         setClips((current) => {
+          const withoutModel = current.filter((c) => c.modelId !== target.id);
           const start =
-            current.length === 0
+            withoutModel.length === 0
               ? 0
-              : Math.ceil(Math.max(...current.map((c) => c.start + c.duration)));
+              : Math.ceil(Math.max(...withoutModel.map((c) => c.start + c.duration)));
           return [
-            ...current,
+            ...withoutModel,
             {
               id: makeId(),
               modelId: target.id,
-              label: `${target.name} · animated`,
+              animationId,
+              part: WHOLE_PART,
+              label: name,
               start,
               duration,
             },
-          ].sort((a, b) => a.start - b.start);
+          ].sort((a, b) => a.start - b.start || a.part.localeCompare(b.part));
         });
 
         setStatus({
           kind: 'info',
-          text: `Animated “${target.name}” (${duration.toFixed(duration % 1 === 0 ? 0 : 1)}s one-shot).`,
+          text: `Animated “${target.name}” (${duration.toFixed(duration % 1 === 0 ? 0 : 1)}s) — base model unchanged.`,
         });
       }),
-    [run, models, activeModelId],
+    [run, models, activeModelId, aspectRatio, selectedLayer],
   );
 
-  // Slider/switch changes are code edits: patch the PARAMS literal in place.
   const setParam = useCallback(
     (name: string, value: number | boolean | string) => {
       setCode((current) => patchParam(current, name, value));
@@ -337,12 +440,10 @@ export function useSceneProject() {
   const setActiveModel = useCallback((id: string) => {
     setActiveModelId(id);
     setSelectedModelIds([id]);
+    setSelectedLayer(null);
+    setTimelineFocusModelId(id);
   }, []);
 
-  /**
-   * Click selects one model; shift-click toggles it in the multi-select set
-   * used for Merge (does not remove the previous selection).
-   */
   const selectModel = useCallback((id: string, options?: { shiftKey?: boolean }) => {
     if (options?.shiftKey) {
       setSelectedModelIds((current) => {
@@ -353,121 +454,189 @@ export function useSceneProject() {
         return [...current, id];
       });
       setActiveModelId(id);
+      setSelectedLayer(null);
+      setTimelineFocusModelId(id);
       return;
     }
     setActiveModelId(id);
     setSelectedModelIds([id]);
+    setSelectedLayer(null);
+    setTimelineFocusModelId(id);
   }, []);
 
-  /** Renames a model in the Models & Layers list (display name only). */
+  const selectLayer = useCallback((modelId: string, layerName: string) => {
+    setActiveModelId(modelId);
+    setSelectedModelIds([modelId]);
+    setSelectedLayer(layerName);
+    setTimelineFocusModelId(modelId);
+  }, []);
+
   const renameModel = useCallback((modelId: string, newName: string) => {
     const trimmed = newName.trim();
     if (!trimmed) return;
     setModels((current) =>
       current.map((m) => (m.id === modelId && m.name !== trimmed ? { ...m, name: trimmed } : m)),
     );
-    setClips((current) =>
-      current.map((c) => (c.modelId === modelId && c.label !== trimmed ? { ...c, label: trimmed } : c)),
-    );
   }, []);
 
-  /** Renames a mesh-group key on a model's scene module (code stays source of truth). */
   const renameModelLayer = useCallback((modelId: string, oldName: string, newName: string) => {
     const trimmed = newName.trim();
     if (!trimmed || trimmed === oldName) return;
     setModels((current) =>
       current.map((m) => {
-        if (m.id !== modelId || m.childIds?.length) return m;
-        const code = renameLayerInCode(m.code, oldName, trimmed);
-        return code === m.code ? m : { ...m, code };
+        if (m.id !== modelId) return m;
+        const nextCode = renameLayerInCode(m.code, oldName, trimmed);
+        return nextCode === m.code ? m : { ...m, code: nextCode };
       }),
     );
+    setClips((current) =>
+      current.map((c) =>
+        c.modelId === modelId && c.part === oldName
+          ? { ...c, part: trimmed, label: c.label.replace(oldName, trimmed) }
+          : c,
+      ),
+    );
+    setSelectedLayer((current) => (current === oldName ? trimmed : current));
   }, []);
 
-  /** Removes a mesh-group from a model's scene module so it no longer renders. */
   const deleteModelLayer = useCallback((modelId: string, layerName: string) => {
     setModels((current) =>
       current.map((m) => {
-        if (m.id !== modelId || m.childIds?.length) return m;
-        const code = deleteLayerInCode(m.code, layerName);
-        return code === m.code ? m : { ...m, code };
+        if (m.id !== modelId) return m;
+        const nextCode = deleteLayerInCode(m.code, layerName);
+        return nextCode === m.code ? m : { ...m, code: nextCode };
       }),
     );
+    setClips((current) => current.filter((c) => !(c.modelId === modelId && c.part === layerName)));
+    setSelectedLayer((current) => (current === layerName ? null : current));
   }, []);
 
-  /**
-   * Creates a co-view merge from the current multi-selection. Children remain
-   * separate models; the new row only groups them for side-by-side viewing.
-   */
+  /** Fuse selected models into one real animatable module on a shared plane. */
   const mergeSelectedModels = useCallback(() => {
-    const ids = selectedModelIds.filter((id) => models.some((m) => m.id === id));
-    if (ids.length < 2) {
-      setStatus({ kind: 'error', text: 'Shift-click at least two models, then merge.' });
-      return;
-    }
-
-    // Flatten nested merges so the viewport always gets leaf scene modules.
-    const leafIds: string[] = [];
-    for (const id of ids) {
-      const model = models.find((m) => m.id === id);
-      if (!model) continue;
-      if (model.childIds?.length) {
-        for (const childId of model.childIds) {
-          if (!leafIds.includes(childId)) leafIds.push(childId);
-        }
-      } else if (!leafIds.includes(id)) {
-        leafIds.push(id);
+    void run('Merging models…', async () => {
+      const ids = selectedModelIds.filter((id) => models.some((m) => m.id === id));
+      if (ids.length < 2) {
+        throw new Error('Shift-click at least two models, then merge.');
       }
-    }
-    if (leafIds.length < 2) {
-      setStatus({ kind: 'error', text: 'Need at least two distinct models to merge.' });
-      return;
-    }
 
-    const children = leafIds
-      .map((id) => models.find((m) => m.id === id))
-      .filter((m): m is SceneModel => Boolean(m));
-    const primary = children[0];
-    const id = makeId();
-    const name = children.map((m) => m.name).join(' + ');
-    setModels((current) => [
-      ...current,
-      {
-        id,
-        name: name.length > 48 ? `${name.slice(0, 48)}…` : name,
-        code: primary.code,
-        createdAt: Date.now(),
-        childIds: leafIds,
-      },
-    ]);
-    setActiveModelId(id);
-    setSelectedModelIds([id]);
-    setStatus({
-      kind: 'info',
-      text: `Merged ${children.length} models onto one plane (not constrained — side-by-side view).`,
+      const leafIds: string[] = [];
+      for (const id of ids) {
+        const model = models.find((m) => m.id === id);
+        if (!model) continue;
+        if (model.childIds?.length) {
+          for (const childId of model.childIds) {
+            if (!leafIds.includes(childId)) leafIds.push(childId);
+          }
+        } else if (!leafIds.includes(id)) {
+          leafIds.push(id);
+        }
+      }
+      if (leafIds.length < 2) {
+        throw new Error('Need at least two distinct models to merge.');
+      }
+
+      const children = leafIds
+        .map((id) => models.find((m) => m.id === id))
+        .filter((m): m is SceneModel => Boolean(m));
+
+      const fusedCode = fuseSceneModules(children.map((c) => ({ name: c.name, code: c.code })));
+
+      const id = makeId();
+      const name = children.map((m) => m.name).join(' + ');
+      setModels((current) => [
+        ...current,
+        {
+          id,
+          name: name.length > 48 ? `${name.slice(0, 48)}…` : name,
+          code: fusedCode,
+          createdAt: Date.now(),
+          childIds: leafIds,
+        },
+      ]);
+      setActiveModelId(id);
+      setSelectedModelIds([id]);
+      setSelectedLayer(null);
+      setTimelineFocusModelId(id);
+      setStatus({
+        kind: 'info',
+        text: `Merged ${children.length} models into one animatable scene.`,
+      });
     });
-  }, [selectedModelIds, models]);
+  }, [selectedModelIds, models, run]);
 
-  // Places a 1-second clip for `modelId` at the given whole second, dropped
-  // from the Materials list. Per the one-model-per-second invariant, any
-  // clip already occupying that second is replaced.
+  const toggleLaneCollapsed = useCallback((laneId: string) => {
+    setCollapsedLanes((current) => {
+      const next = new Set(current);
+      if (next.has(laneId)) next.delete(laneId);
+      else next.add(laneId);
+      return next;
+    });
+  }, []);
+
+  const moveClip = useCallback((id: string, start: number) => {
+    const nextStart = Math.max(0, Math.floor(start));
+    setClips((current) => {
+      const clip = current.find((c) => c.id === id);
+      if (!clip) return current;
+      const duration = clip.duration;
+      return current
+        .filter(
+          (c) =>
+            c.id === id ||
+            !(
+              c.modelId === clip.modelId &&
+              c.part === clip.part &&
+              clipsOverlap(nextStart, duration, c.start, c.duration)
+            ),
+        )
+        .map((c) => (c.id === id ? { ...c, start: nextStart } : c))
+        .sort((a, b) => a.start - b.start || a.part.localeCompare(b.part));
+    });
+  }, []);
+
   const addClipAtSecond = useCallback(
     (modelId: string, second: number) => {
       const model = models.find((m) => m.id === modelId);
       if (!model) return;
       const start = Math.max(0, Math.floor(second));
-      setClips((current) => [
-        ...current.filter((c) => !(start < c.start + c.duration && start + 1 > c.start)),
-        { id: makeId(), modelId, label: model.name, start, duration: 1 },
-      ].sort((a, b) => a.start - b.start));
+      let animation = model.animation;
+      const animationId = animation?.id ?? makeId();
+      const duration = animation?.duration ?? 1;
+
+      // Ensure a placeholder animation duplicate exists if the model was dragged without one.
+      if (!animation) {
+        animation = {
+          id: animationId,
+          name: model.name,
+          duration,
+          code: model.code,
+          parts: [WHOLE_PART],
+          createdAt: Date.now(),
+        };
+        setModels((current) =>
+          current.map((m) => (m.id === modelId ? { ...m, animation } : m)),
+        );
+      }
+
+      setClips((current) => {
+        const next = current.filter(
+          (c) => !(c.modelId === modelId && c.part === WHOLE_PART && clipsOverlap(start, duration, c.start, c.duration)),
+        );
+        next.push({
+          id: makeId(),
+          modelId,
+          animationId,
+          part: WHOLE_PART,
+          label: model.name,
+          start,
+          duration,
+        });
+        return next.sort((a, b) => a.start - b.start || a.part.localeCompare(b.part));
+      });
     },
     [models],
   );
 
-  // Timeline right-click menu: delete removes a clip outright; copy stashes
-  // it in an in-memory clipboard; paste drops the stashed clip at the given
-  // whole second, replacing any clip already occupying that span (same
-  // overlap rule as `addClipAtSecond`).
   const deleteClip = useCallback((id: string) => {
     setClips((current) => current.filter((c) => c.id !== id));
   }, []);
@@ -487,28 +656,35 @@ export function useSceneProject() {
       const duration = clipboardClip.duration;
       setClips((current) =>
         [
-          ...current.filter((c) => !(start < c.start + c.duration && start + duration > c.start)),
+          ...current.filter(
+            (c) =>
+              !(
+                c.modelId === clipboardClip.modelId &&
+                c.part === clipboardClip.part &&
+                clipsOverlap(start, duration, c.start, c.duration)
+              ),
+          ),
           { ...clipboardClip, id: makeId(), start },
-        ].sort((a, b) => a.start - b.start),
+        ].sort((a, b) => a.start - b.start || a.part.localeCompare(b.part)),
       );
     },
     [clipboardClip],
   );
 
-  // Timeline resize handle: changes only how long a clip is shown, not its
-  // playback rate — `updateScene`'s `time` still advances one second per
-  // second, so a periodic animation keeps looping past the clip's original
-  // length and a one-shot animation does whatever its own code does at
-  // large `time` values. Clamped to a minimum width and to the start of the
-  // next clip on the timeline so resizing can't create an overlap.
   const resizeClip = useCallback((id: string, duration: number) => {
     setClips((current) => {
       const clip = current.find((c) => c.id === id);
       if (!clip) return current;
-      const next = current
-        .filter((c) => c.id !== id && c.start >= clip.start)
+      const nextOnLane = current
+        .filter(
+          (c) =>
+            c.id !== id &&
+            c.modelId === clip.modelId &&
+            c.part === clip.part &&
+            c.start >= clip.start,
+        )
         .reduce<Clip | undefined>((closest, c) => (!closest || c.start < closest.start ? c : closest), undefined);
-      const maxDuration = next ? next.start - clip.start : Infinity;
+      const maxDuration = nextOnLane ? nextOnLane.start - clip.start : Infinity;
       const clamped = Math.min(Math.max(duration, MIN_CLIP_DURATION), maxDuration);
       return current.map((c) => (c.id === id ? { ...c, duration: clamped } : c));
     });
@@ -530,8 +706,6 @@ export function useSceneProject() {
       run('Starting MP4 render…', async () => {
         const { jobId } = await api.startMp4Export(code, settings);
         setMp4Job({ id: jobId, status: 'running', progress: 0, message: 'Queued' });
-        // Snapshot which model this render is for; the active model could
-        // change while polling and we want the clip labelled correctly.
         const renderModelId = activeModelId;
         const renderModelName = activeModel.name;
         if (pollRef.current !== null) window.clearInterval(pollRef.current);
@@ -550,18 +724,17 @@ export function useSceneProject() {
               window.clearInterval(pollRef.current);
               pollRef.current = null;
             }
-            // On success, append the render as a new clip at the end of the timeline.
             if (job.status === 'done') {
               setClips((current) => {
-                const nextStart = current.reduce(
-                  (max, c) => Math.max(max, c.start + c.duration),
-                  0,
-                );
+                const nextStart = current.reduce((max, c) => Math.max(max, c.start + c.duration), 0);
+                const animId = makeId();
                 return [
                   ...current,
                   {
                     id: makeId(),
                     modelId: renderModelId,
+                    animationId: animId,
+                    part: WHOLE_PART,
                     label: renderModelName,
                     start: nextStart,
                     duration: settings.durationInSeconds,
@@ -577,18 +750,18 @@ export function useSceneProject() {
     [run, code, activeModelId, activeModel.name],
   );
 
-  /** Clear models/clips and reseed the Default model (unlink / no linked repo). */
   const resetToDefault = useCallback(() => {
     const seed = makeDefaultModel();
     setModels([seed]);
     setActiveModelId(seed.id);
     setSelectedModelIds([seed.id]);
+    setSelectedLayer(null);
+    setTimelineFocusModelId(seed.id);
     setClips([]);
     setMp4Job(null);
     setStatus({ kind: 'info', text: 'Reset to Default model.' });
   }, []);
 
-  /** Replace local models with scripts pulled from a linked GitHub repo. Clears timeline clips. */
   const replaceFromRemote = useCallback(
     (remote: Array<{ id: string; name: string; code: string }>) => {
       if (remote.length === 0) {
@@ -608,6 +781,8 @@ export function useSceneProject() {
       setModels(next);
       setActiveModelId(next[0].id);
       setSelectedModelIds([next[0].id]);
+      setSelectedLayer(null);
+      setTimelineFocusModelId(next[0].id);
       setClips([]);
       setStatus({
         kind: 'info',
@@ -628,8 +803,10 @@ export function useSceneProject() {
     models,
     activeModelId,
     selectedModelIds,
+    selectedLayer,
     setActiveModel,
     selectModel,
+    selectLayer,
     mergeSelectedModels,
     renameModel,
     renameModelLayer,
@@ -641,13 +818,21 @@ export function useSceneProject() {
     copyClip,
     pasteClip,
     resizeClip,
+    moveClip,
     hasClipboardClip: clipboardClip !== null,
     timelineClips,
+    timelineLanes: visibleLanes,
+    allTimelineLanes: timelineLanes,
+    timelineFocusModelId,
+    setTimelineFocusModelId,
+    collapsedLanes,
+    toggleLaneCollapsed,
     timelineTotal,
     playback,
     previewCode,
     previewScenes,
     previewTime,
+    previewTrackOverlays,
     previewModelName,
     generate,
     modify,
@@ -670,18 +855,55 @@ function downloadBlob(blob: Blob, name: string): void {
   URL.revokeObjectURL(url);
 }
 
-/** Resolve a model (or merge) into the scene-module entries the viewport should load. */
+/** Resolve a model into viewport scene entries. Merges are one fused module. */
 export function resolveViewportScenes(
   model: SceneModel,
-  models: SceneModel[],
+  _allModels: SceneModel[] = [],
 ): Array<{ id: string; code: string }> {
-  if (model.childIds?.length) {
-    const scenes: Array<{ id: string; code: string }> = [];
-    for (const childId of model.childIds) {
-      const child = models.find((m) => m.id === childId);
-      if (child?.code) scenes.push({ id: child.id, code: child.code });
-    }
-    if (scenes.length > 0) return scenes;
-  }
   return [{ id: model.id, code: model.code }];
+}
+
+/** Build timeline lanes: singular model = one row; merge = model + children (1 deep). */
+function buildTimelineLanes(models: SceneModel[], clips: Clip[]): TimelineLane[] {
+  const lanes: TimelineLane[] = [];
+  const modelsById = new Map(models.map((m) => [m.id, m]));
+
+  // Prefer models that appear on the timeline; always include ones with an animation.
+  const modelIds = new Set<string>();
+  for (const clip of clips) modelIds.add(clip.modelId);
+  for (const model of models) {
+    if (model.animation) modelIds.add(model.id);
+  }
+  // If nothing yet, still show the first few models so the NLE isn't empty.
+  if (modelIds.size === 0) {
+    for (const model of models.slice(0, 3)) modelIds.add(model.id);
+  }
+
+  for (const modelId of modelIds) {
+    const model = modelsById.get(modelId);
+    if (!model) continue;
+
+    const modelLaneId = model.id;
+    lanes.push({
+      id: modelLaneId,
+      label: model.name,
+      depth: 0,
+      modelId: model.id,
+    });
+
+    // Merges expose child models one level down — no part/component lanes.
+    for (const childId of model.childIds ?? []) {
+      const child = modelsById.get(childId);
+      if (!child) continue;
+      lanes.push({
+        id: `${model.id}::child::${child.id}`,
+        label: child.name,
+        depth: 1,
+        modelId: model.id,
+        parentId: modelLaneId,
+      });
+    }
+  }
+
+  return lanes;
 }

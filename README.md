@@ -12,9 +12,9 @@ visual is produced by code that runs in a real WebGL renderer.
 
 1. You type a prompt ("a spinning gold torus knot") into the code editor's
    prompt bar.
-2. An AI agent (Claude, using the `scene-generation` skill) or, offline, a
-   deterministic template generator writes a **Three.js scene module**.
-3. The scene module renders live in a WebGL viewport in the browser. Its
+2. An AI agent (Claude, using the `threejs-modelling` skill) or, offline, a
+   deterministic template generator writes a **Three.js model module**.
+3. The model module renders live in a WebGL viewport in the browser. Its
    `PARAMS` block is parsed into sliders, switches, and color pickers that
    patch the code directly when moved.
 4. You can edit the code by hand, ask the AI to modify it, export the whole
@@ -27,13 +27,13 @@ hack-the-6ix/
 ├── shared/            AI/browser/server-agnostic core: types, PARAMS↔slider parsing,
 │                       scene-module validation, deterministic scene-code templates
 ├── skills/             Claude Skills (also valid as Claude Code skills)
-│   ├── scene-generation/   generates/edits the Three.js scene module
+│   ├── threejs-modelling/  generates/edits the Three.js model module
 │   └── remotion-mp4/       plans fps/duration/resolution for an MP4 render
 ├── server/            Express API: AI agents, Remotion renderer, export
 │   └── src/
 │       ├── config/         merges config/default.config.json with env overrides
 │       ├── ai/              Anthropic client, skill loader, fenced-code-block extraction
-│       ├── agents/          orchestrator, scene agent, render agent, offline fallback
+│       ├── agents/          orchestrator, model agent, render agent, offline fallback
 │       ├── remotion/        bundles + renders the Remotion project to MP4
 │       ├── export/          code (ZIP) and MP4 export flows
 │       ├── routes/          /api/generate, /api/modify, /api/export/*
@@ -61,7 +61,7 @@ web (editor + controls + viewport)
    ▼
 server/routes  ─▶  server/agents (orchestrator)
    │                    │
-   │                    ├─▶ server/ai (Claude + scene-generation / remotion-mp4 skills)
+   │                    ├─▶ server/ai (Claude + threejs-modelling / remotion-mp4 skills)
    │                    │        │ offline fallback ▶ server/agents/templateFallback (shared/sceneTemplate)
    │                    └─▶ server/remotion/renderer ─▶ remotion/ (bundle + render) ─▶ renders/*.mp4
    ▼
@@ -117,12 +117,12 @@ npm run typecheck         # typecheck every workspace
 
 ## How 3D code generation works
 
-`skills/scene-generation/SKILL.md` is both a Claude Skill and this project's
+`skills/threejs-modelling/SKILL.md` is both a Claude Skill and this project's
 system prompt. It defines a strict contract: a self-contained Three.js module
 exporting `PARAMS`, optional `CAMERA`, `buildScene(ctx)`, and
 `updateScene(ctx)` (a pure function of `time`, no `Math.random()`/`Date`, so
 Remotion can render frames independently and out of order).
-`server/src/agents/sceneAgent.ts` sends the prompt to Claude with that skill as
+`server/src/agents/modelAgent.ts` sends the prompt to Claude with that skill as
 the system prompt, extracts the fenced JavaScript block, validates the module
 against the contract (`shared/src/validate.ts`), and retries once with the
 validator's errors if it fails. Without an API key,
@@ -133,7 +133,7 @@ access.
 ## How tunable elements connect to sliders and switches
 
 Every `PARAMS` entry annotated `@tunable` in a JSDoc comment
-(`skills/scene-generation/SKILL.md` documents the annotation grammar) is
+(`skills/threejs-modelling/SKILL.md` documents the annotation grammar) is
 parsed by `shared/src/tunables.ts`: numbers need `@min`/`@max`/`@step` and
 render as sliders, plain booleans render as switches, and single-quoted hex
 strings render as color pickers (`web/src/controls/*.tsx`,
@@ -169,7 +169,7 @@ The client polls `GET /api/export/mp4/:jobId` for progress and gets back a
 
 ## Where the Claude Skills are
 
-`skills/scene-generation/SKILL.md` and `skills/remotion-mp4/SKILL.md`. They
+`skills/threejs-modelling/SKILL.md` and `skills/remotion-mp4/SKILL.md`. They
 are loaded verbatim as system prompts by `server/src/ai/skills.ts` and are
 also valid Claude Code skill files if you want to drive the same generation
 logic directly from a Claude Code session against this repo.

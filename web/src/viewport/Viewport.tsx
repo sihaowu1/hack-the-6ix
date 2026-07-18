@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { ArrowsClockwise, GridFour, Lightbulb } from '@phosphor-icons/react';
 import { SceneRuntime, type ObjectHandle, type SceneEntry } from './SceneRuntime';
+import type { TrackOverlay } from './trackOverlay';
 import { IconButton } from '../components/ui/Button';
 
 interface Props {
@@ -9,6 +10,7 @@ interface Props {
   /**
    * Multi-scene co-view (merges). When provided and non-empty, takes
    * precedence over `code` — each entry is built into its own offset group.
+   * Fused merges are a single entry; legacy co-view still supported.
    */
   scenes?: SceneEntry[];
   /**
@@ -23,6 +25,8 @@ interface Props {
    * scene at an exact instant instead (Video/Export screens).
    */
   time?: number;
+  /** Host-side part tracks for multi-clip NLE playback (see `trackOverlay.ts`). */
+  trackOverlays?: TrackOverlay[];
   /** Shows the grid/lighting/camera toolbar. Off for read-only previews. */
   showToolbar?: boolean;
 }
@@ -39,7 +43,7 @@ export interface ViewportHandle {
  * output) and hot-reloads them into the SceneRuntime.
  */
 export const Viewport = forwardRef<ViewportHandle, Props>(function Viewport(
-  { code, scenes, onModelClick, time, showToolbar = false },
+  { code, scenes, onModelClick, time, trackOverlays, showToolbar = false },
   ref,
 ) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -107,6 +111,10 @@ export const Viewport = forwardRef<ViewportHandle, Props>(function Viewport(
   useEffect(() => {
     if (time !== undefined) runtimeRef.current?.setTime(time);
   }, [time]);
+
+  useEffect(() => {
+    runtimeRef.current?.setTrackOverlays(trackOverlays ?? []);
+  }, [trackOverlays]);
 
   // The runtime holds these across rebuilds, so each effect only has to push
   // the change; `rebuild` re-applies whatever it was last told.

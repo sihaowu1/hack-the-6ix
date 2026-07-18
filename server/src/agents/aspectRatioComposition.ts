@@ -5,17 +5,17 @@ import { loadSkill } from '../ai/skills';
 import { extractFencedBlocks } from '../ai/extract';
 
 /**
- * Standalone aspect-ratio-aware scene composition.
+ * Standalone aspect-ratio-aware model composition.
  *
  * This is NOT wired into `orchestrator.ts`, any route, or the chat panel —
  * nothing in the running app calls it. It exists to show how a caller would
  * pass a target `AspectRatio` into the `camera-composition` skill (see
  * `skills/camera-composition/SKILL.md`'s "Aspect ratio" section) so the model
  * can acknowledge it and frame the shot for it, without touching the
- * `scene-generation`/chat generate-modify pipeline in `sceneAgent.ts`.
+ * `threejs-modelling`/chat generate-modify pipeline in `modelAgent.ts`.
  */
 
-export interface AspectRatioSceneResult {
+export interface AspectRatioModelResult {
   code: string;
   /** The model's prose outside the code fences — expected to open with a one-line aspect-ratio acknowledgment. */
   note?: string;
@@ -31,20 +31,20 @@ function aspectRatioLine(aspectRatio: AspectRatio): string {
 }
 
 /**
- * Generates a scene for a given prompt + aspect ratio using the
- * `scene-generation` and `camera-composition` skills together. Standalone —
+ * Generates a model for a given prompt + aspect ratio using the
+ * `threejs-modelling` and `camera-composition` skills together. Standalone —
  * see module doc comment.
  */
-export async function generateSceneForAspectRatio(
+export async function generateModelForAspectRatio(
   client: Anthropic,
   prompt: string,
   aspectRatio: AspectRatio = DEFAULT_ASPECT_RATIO,
-): Promise<AspectRatioSceneResult> {
+): Promise<AspectRatioModelResult> {
   const messages: Anthropic.MessageParam[] = [
     {
       role: 'user',
       content:
-        `Create a 3D scene from this prompt:\n\n${prompt}\n\n` +
+        `Create a component-based static Three.js model from this prompt:\n\n${prompt}\n\n` +
         `${aspectRatioLine(aspectRatio)}\n\n` +
         'Return the ```javascript scene module.',
     },
@@ -56,12 +56,12 @@ export async function generateSceneForAspectRatio(
       model: config.ai.model,
       max_tokens: config.ai.maxTokens,
       thinking: { type: 'adaptive' },
-      system: `${loadSkill('scene-generation')}\n\n${loadSkill('camera-composition')}`,
+      system: `${loadSkill('threejs-modelling')}\n\n${loadSkill('camera-composition')}`,
       messages,
     });
     const response = await stream.finalMessage();
     if (response.stop_reason === 'refusal') {
-      throw new Error('The model declined to generate this scene. Try a different prompt.');
+      throw new Error('The model declined to generate this model. Try a different prompt.');
     }
     const text = response.content
       .filter((block): block is Anthropic.TextBlock => block.type === 'text')

@@ -10,6 +10,11 @@ scene module. You never invent idle, bob, spin, or walk cycles the user did
 not ask for. Motion is a **one-shot timeline** with a finite playout duration —
 after it ends, hold the final pose (do **not** loop).
 
+**Host contract:** the base model on the Model screen is immutable. Your output
+is stored as a **duplicate clip** in an animation library — it does **not**
+replace the user's source model. Prefer `ANIMATION.tracks` on existing part
+keys so the host can overlay motion onto the pristine base geometry.
+
 This skill adapts an action-ready pattern: animate **pivot groups at joints**,
 not centered visual meshes; expose named parts via the `buildScene` return map;
 drive clips from normalized progress or keyframe tracks.
@@ -19,7 +24,8 @@ drive clips from normalized progress or keyframe tracks.
 Return exactly one fenced code block (brief prose around it is fine, no other
 code blocks):
 
-1. A ` ```javascript ` block — the **complete** updated Three.js scene module.
+1. A ` ```javascript ` block — the **complete** Three.js scene module (base
+   module + this clip's `ANIMATION` / `updateScene` motion).
 
 Never return diffs or fragments. Never generate a brand-new model from scratch —
 always start from the module the user provided.
@@ -31,12 +37,15 @@ be self-contained (**no `import` / `require` / `fetch`**).
 
 Required exports:
 
-- `export const PARAMS = { ... }` — preserve existing tunables unless the
-  request requires a change.
-- `export const CAMERA = { ... }` — preserve if present.
-- `export function buildScene({ THREE, scene, params })` — preserve geometry;
-  may insert **pivot / hinge groups** when the requested motion needs a joint.
-  Return a named object map of every part (including new pivots).
+- `export const PARAMS = { ... }` — **preserve unchanged** (do not retune sizes
+  or colors for the animation request).
+- `export const CAMERA = { ... }` — preserve if present (unless a composition
+  request explicitly asks to reframe).
+- `export function buildScene({ THREE, scene, params })` — **preserve geometry
+  and materials**. Prefer animating existing return-map keys. Insert
+  **pivot / hinge groups** only when the requested motion cannot work on the
+  current hierarchy. Return a named object map of every part (including new
+  pivots when added).
 - `export function updateScene({ THREE, scene, objects, params, time })` —
   apply PARAMS first, then sample the active animation from `time`.
 
@@ -70,15 +79,19 @@ export const ANIMATION = {
 
 Rules:
 
-- **One active clip** per module for now (`name` reserved for multi-clip later).
+- **One clip per generation** — write a single `ANIMATION` export for this
+  request. The host stores many saved clips under the model; do **not** assume
+  you are erasing history, and do not try to merge prior clips into this export.
 - `duration` is required and must be `> 0`. Prefer an explicit length from the
   user; otherwise choose a short, readable playout (typically 1–4 seconds).
-- `tracks` are preferred for multi-part body motion. Keyframe `t` values are
-  **absolute seconds** in `[0, duration]`, sorted ascending; lerp between
-  neighbors (use angle-safe interpolation for rotations).
-- Simple single-DOF clips may omit elaborate tracks and drive motion from
-  normalized progress in `updateScene` (see sampling below) — still export
-  `name` and `duration`.
+- **`tracks` are required when any part moves** (strongly preferred always).
+  The host builds per-part timeline lanes and overlays tracks onto the base
+  model. Keyframe `t` values are **absolute seconds** in `[0, duration]`,
+  sorted ascending; lerp between neighbors (use angle-safe interpolation for
+  rotations).
+- Simple single-DOF clips may also drive motion from normalized progress in
+  `updateScene` — still export `name`, `duration`, and a `tracks` array naming
+  the part so the host timeline works.
 
 ## Sampling in updateScene (no loop)
 
@@ -109,10 +122,11 @@ Pivot rules:
 When the existing hierarchy cannot rotate correctly at a joint, **insert a
 pivot `Group`**, reparent the visual mesh under it with the correct local
 offset, put the **pivot** (not only the mesh) in the `buildScene` return map,
-and target that pivot in `ANIMATION.tracks`.
+and target that pivot in `ANIMATION.tracks`. Prefer existing part names when
+possible so overlays match the base model.
 
 Do **not** invent extra meshes or materials just to animate. Preserve
-unrelated parts and PARAMS.
+unrelated parts and PARAMS. Do **not** redesign the model.
 
 ## User intent only
 
@@ -127,7 +141,21 @@ Chest lid opens once over 1.2 seconds. `buildScene` exposes `lidHinge` (pivot
 at the back edge; lid mesh is a child). `updateScene`:
 
 ```javascript
-export const ANIMATION = { name: 'openLid', duration: 1.2 };
+export const ANIMATION = {
+  name: 'openLid',
+  duration: 1.2,
+  tracks: [
+    {
+      part: 'lidHinge',
+      channel: 'rotation',
+      axis: 'x',
+      keyframes: [
+        { t: 0, v: 0 },
+        { t: 1.2, v: -Math.PI * 0.42 },
+      ],
+    },
+  ],
+};
 
 export function updateScene({ objects, params, time }) {
   // …apply PARAMS…
@@ -201,6 +229,7 @@ Given the current module + an animation instruction:
 
 1. Preserve geometry, materials, PARAMS, CAMERA, and unrelated named parts.
 2. Insert or adjust pivots only when required for correct joint motion.
-3. Replace or add `ANIMATION` for this request (one active clip).
+3. Replace or add `ANIMATION` for this request (one active clip) with `tracks`.
 4. Rewrite the motion half of `updateScene` (keep PARAMS application).
-5. Return the complete `` ```javascript `` module.
+5. Return the complete `` ```javascript `` module (stored by the host as a
+   duplicate clip — the user's base model is never replaced).

@@ -11,6 +11,20 @@ export interface TimelineClip {
   duration: number;
   /** Optional custom fill color; defaults to the accent color. */
   color?: string;
+  /** Lane key for hierarchical multi-track layout (`modelId` or `modelId::part`). */
+  laneId?: string;
+}
+
+/** A row in the hierarchical timeline (model, or merge → children). */
+export interface TimelineLane {
+  id: string;
+  label: string;
+  depth: number;
+  /** When set, this lane accepts clips for a specific part. */
+  part?: string;
+  modelId: string;
+  /** Parent lane id for collapse nesting. */
+  parentId?: string;
 }
 
 /** Minimum length (seconds) shown for a timeline with no clips yet. */
@@ -28,4 +42,9 @@ export const MIN_CLIP_DURATION = 0.1;
 export function deriveTimelineTotal(clips: TimelineClip[], totalDuration?: number): number {
   const derivedEnd = clips.reduce((max, c) => Math.max(max, c.start + c.duration), 0);
   return Math.max(totalDuration ?? Math.max(derivedEnd, EMPTY_TIMELINE_FLOOR), 0.0001);
+}
+
+/** Lane id for a model's part track. */
+export function partLaneId(modelId: string, part: string): string {
+  return `${modelId}::${part}`;
 }
