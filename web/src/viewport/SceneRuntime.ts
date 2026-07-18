@@ -1,6 +1,36 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { validateSceneModule, type SceneModule } from '@motionforge/shared';
+
+const gltfLoader = new GLTFLoader();
+
+/**
+ * Synthesizes a `SceneModule` for a statically-imported GLB/glTF asset — the
+ * Blender-export path bypasses the AI code-generation contract entirely
+ * (there is no `buildScene` source to hot-load), so the runtime builds one
+ * itself: an empty group is returned immediately (so `rebuild`'s
+ * before/after diff picks it up), and the parsed glTF scene is appended into
+ * it once loading resolves.
+ */
+function createImportedModule(assetUrl: string): SceneModule {
+  return {
+    PARAMS: {},
+    buildScene(ctx) {
+      const scene = ctx.scene as THREE.Scene;
+      const root = new THREE.Group();
+      scene.add(root);
+      gltfLoader.load(
+        assetUrl,
+        (gltf) => root.add(gltf.scene),
+        undefined,
+        (err) => console.error('Failed to load imported model', err),
+      );
+      return { root };
+    },
+    updateScene() {},
+  };
+}
 
 /** A clicked object's position (units), left/right yaw (`angle`, Y-axis) and up/down pitch (`pitch`, X-axis), both in degrees. */
 export interface ObjectTransform {
@@ -28,6 +58,8 @@ export interface ObjectHandle {
 export interface SceneEntry {
   id: string;
   code: string;
+  /** When set, this entry is an imported GLB/glTF asset — rendered via `createImportedModule` instead of hot-loading `code`. */
+  assetUrl?: string;
 }
 
 interface LoadedEntry {
@@ -139,6 +171,7 @@ export class SceneRuntime {
     }
 
     for (const entry of scenes) {
+      if (entry.assetUrl) continue;
       const errors = validateSceneModule(entry.code);
       if (errors.length > 0) throw new Error(`${entry.id}: ${errors.join('; ')}`);
     }
@@ -146,7 +179,7 @@ export class SceneRuntime {
     const loaded = await Promise.all(
       scenes.map(async (entry) => ({
         id: entry.id,
-        module: await loadSceneModule(entry.code),
+        module: entry.assetUrl ? createImportedModule(entry.assetUrl) : await loadSceneModule(entry.code),
       })),
     );
 
