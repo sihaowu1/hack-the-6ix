@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { RenderSettings, TunableParam } from '@motionforge/shared';
 import { RequireAuth } from '../../auth/RequireAuth';
 import { useAuth } from '../../auth/useAuth';
@@ -10,10 +10,12 @@ import { useResizable } from '../layout/useResizable';
 import { Timeline } from '../timeline/Timeline';
 import type { TimelineClip } from '../timeline/timelineMath';
 import type { TimelinePlayback } from '../timeline/useTimelinePlayback';
-import type { Mp4JobState } from '../../state/useSceneProject';
+import type { Mp4JobState, SceneModel } from '../../state/useSceneProject';
 import { VideoPreview } from '../VideoPreview';
 
 export interface ExportScreenProps {
+  /** All models to push under `models/` on GitHub commit/create. */
+  models: SceneModel[];
   /** Active model scene module source. */
   code: string;
   /** Active model Blender script. */
@@ -44,10 +46,18 @@ export interface ExportScreenProps {
   playback: TimelinePlayback;
   /** Scene code for whatever's under the playhead (from `useSceneProject.previewCode`); undefined shows a black screen. */
   previewCode: string | undefined;
+  /** Multi-scene co-view when the playhead clip is a merge. */
+  previewScenes?: Array<{ id: string; code: string }>;
   /** Playhead position local to the active clip (from `useSceneProject.previewTime`). */
   previewTime: number;
   /** Display name for whatever's under the playhead (from `useSceneProject.previewModelName`). */
   previewModelName: string;
+  /** Reset local models when the GitHub repo is unlinked. */
+  onGitHubUnlink: () => void;
+  /** Apply models pulled from the linked GitHub repo. */
+  onGitHubPull: (
+    models: Array<{ id: string; name: string; code: string; blenderCode?: string }>,
+  ) => void;
 }
 
 /** Video aspect ratio (matches `config/default.config.json`'s render resolution, 1280x720). */
@@ -73,6 +83,7 @@ const RESOLUTIONS = [
  *   +------------------+---------------------------+
  */
 export function ExportScreen({
+  models,
   code,
   blenderCode,
   modelName,
@@ -86,11 +97,17 @@ export function ExportScreen({
   timelineTotal,
   playback,
   previewCode,
+  previewScenes,
   previewTime,
   previewModelName,
+  onGitHubUnlink,
+  onGitHubPull,
 }: ExportScreenProps) {
   const { configured, login } = useAuth();
-  const github = useGitHubRepo();
+  const onUnlink = useCallback(() => {
+    onGitHubUnlink();
+  }, [onGitHubUnlink]);
+  const github = useGitHubRepo({ onUnlink });
   const [fps, setFps] = useState(30);
   const [duration, setDuration] = useState(6);
   const [resolution, setResolution] = useState(0);
@@ -100,6 +117,20 @@ export function ExportScreen({
   const [commitMessage, setCommitMessage] = useState('');
   const rendering = mp4Job?.status === 'running';
   const exportBusy = busy !== null || github.busy;
+
+  const githubModels = useMemo(
+    () =>
+      models
+        .filter((m) => m.code.trim() && !m.childIds?.length)
+        .map((m) => ({
+          id: m.id,
+          name: m.name,
+          code: m.code,
+          blenderCode: m.blenderCode,
+        })),
+    [models],
+  );
+  const canPushGithub = githubModels.length > 0;
 
   const leftWidth = useResizable({
     direction: 'horizontal',
@@ -229,8 +260,9 @@ export function ExportScreen({
             Export to GitHub
           </h2>
           <p className="m-0 text-[13px] leading-relaxed text-text-dim">
-            Save the scene module and viewer to a GitHub repo so frontend apps can clone and use
-            them. Sign in with GitHub is required.
+            Save all models under <code className="text-text">models/</code> (and an empty{' '}
+            <code className="text-text">animations/</code> folder) to a GitHub repo. Sign in with
+            GitHub is required.
           </p>
           <RequireAuth
             fallback={
@@ -271,21 +303,35 @@ export function ExportScreen({
                 <button
                   type="button"
                   className="btn btn-primary"
-                  disabled={exportBusy || !code.trim()}
+                  disabled={exportBusy || !canPushGithub}
                   onClick={() =>
                     void github.commit({
-                      code,
-                      blenderCode,
+                      models: githubModels,
                       title: modelName,
                       message: commitMessage || undefined,
                     })
                   }
                 >
-                  {github.busy ? 'Committing…' : 'Commit changes'}
+                  {github.busy ? 'Committing…' : `Commit ${githubModels.length} model${githubModels.length === 1 ? '' : 's'}`}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  disabled={github.busy}
+                  onClick={() =>
+                    void github.pull().then((result) => {
+                      onGitHubPull(result.models);
+                    })
+                  }
+                >
+                  {github.busy ? 'Pulling…' : 'Pull from GitHub'}
                 </button>
                 <button type="button" className="btn btn-secondary" disabled={github.busy} onClick={github.unlink}>
                   Unlink repository
                 </button>
+                {github.pullStatus && (
+                  <p className="m-0 text-[13px] leading-relaxed text-text-dim">{github.pullStatus}</p>
+                )}
                 {github.lastCommitUrl && (
                   <p className="m-0 text-[13px] leading-relaxed text-text-dim">
                     Last commit:{' '}
@@ -341,13 +387,12 @@ export function ExportScreen({
                     <button
                       type="button"
                       className="btn btn-primary"
-                      disabled={exportBusy || !repoName.trim() || !code.trim()}
+                      disabled={exportBusy || !repoName.trim() || !canPushGithub}
                       onClick={() =>
                         void github.createRepo({
                           name: repoName.trim(),
                           privateRepo,
-                          code,
-                          blenderCode,
+                          models: githubModels,
                           title: modelName,
                           message: commitMessage || undefined,
                         })
@@ -373,7 +418,13 @@ export function ExportScreen({
                       type="button"
                       className="btn btn-primary"
                       disabled={exportBusy || !existingFullName.trim()}
-                      onClick={() => void github.linkRepo(existingFullName)}
+                      onClick={() =>
+                        void (async () => {
+                          const linkedRepo = await github.linkRepo(existingFullName);
+                          const result = await github.pull(linkedRepo);
+                          onGitHubPull(result.models);
+                        })()
+                      }
                     >
                       {github.busy ? 'Linking…' : 'Link repository'}
                     </button>
@@ -429,6 +480,7 @@ export function ExportScreen({
             <VideoPreview
               job={mp4Job}
               code={previewCode}
+              scenes={previewScenes}
               tunables={tunables}
               onParamChange={onParamChange}
               modelName={previewModelName}
