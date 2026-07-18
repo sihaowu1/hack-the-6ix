@@ -151,6 +151,8 @@ export interface GenerationResult {
    * the code turn alongside the module. Shown as the assistant's chat reply.
    */
   summary?: string;
+  /** Short display title for the model list, e.g. "Red Sports Car". */
+  title?: string;
 }
 
 // ─── Chat intent ────────────────────────────────────────────────────────────

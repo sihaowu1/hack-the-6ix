@@ -15,6 +15,14 @@ import { classifyIntent } from './intentAgent';
 import * as sceneAgent from './sceneAgent';
 import { buildTemplateResult } from './templateFallback';
 
+/** Turn a spec's `subject` (or a raw prompt) into a short, title-cased display name. */
+function toDisplayTitle(text: string): string {
+  const cleaned = text.trim().replace(/^(a|an|the)\s+/i, '');
+  const words = cleaned.split(/\s+/).slice(0, 6).join(' ');
+  const capped = words.length > 42 ? `${words.slice(0, 42)}…` : words;
+  return capped.replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 /**
  * The orchestrator is the single entry point the API routes call. It decides
  * whether a request is served by the AI scene agent or the offline template
@@ -49,7 +57,12 @@ export async function generateScene(prompt: string, image?: ReferenceImage): Pro
         reason: 'no API key configured',
       });
       const template = buildTemplateResult(prompt);
-      return { ...template, tunables: parseTunables(template.code), source: 'template' as const };
+      return {
+        ...template,
+        tunables: parseTunables(template.code),
+        source: 'template' as const,
+        title: toDisplayTitle(prompt),
+      };
     }
     const result = await sceneAgent.generateScene(client, prompt, image);
     const tunables = parseTunables(result.code);
@@ -59,7 +72,12 @@ export async function generateScene(prompt: string, image?: ReferenceImage): Pro
       componentIds: result.spec?.components.map((c) => c.id),
       summary: result.summary,
     });
-    return { ...result, tunables, source: 'model' as const };
+    return {
+      ...result,
+      tunables,
+      source: 'model' as const,
+      title: toDisplayTitle(result.spec?.subject ?? prompt),
+    };
   });
 }
 
@@ -90,7 +108,12 @@ export async function modifyScene(
         componentIds: result.spec?.components.map((c) => c.id),
         summary: result.summary,
       });
-      return { ...result, tunables, source: 'model' as const };
+      return {
+        ...result,
+        tunables,
+        source: 'model' as const,
+        title: result.spec?.subject ? toDisplayTitle(result.spec.subject) : undefined,
+      };
     },
   );
 }
