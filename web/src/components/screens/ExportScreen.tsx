@@ -44,6 +44,8 @@ export interface ExportScreenProps {
   playback: TimelinePlayback;
   /** Scene code for whatever's under the playhead (from `useSceneProject.previewCode`); undefined shows a black screen. */
   previewCode: string | undefined;
+  /** Multi-scene co-view when the playhead clip is a merge. */
+  previewScenes?: Array<{ id: string; code: string }>;
   /** Playhead position local to the active clip (from `useSceneProject.previewTime`). */
   previewTime: number;
   /** Display name for whatever's under the playhead (from `useSceneProject.previewModelName`). */
@@ -86,6 +88,7 @@ export function ExportScreen({
   timelineTotal,
   playback,
   previewCode,
+  previewScenes,
   previewTime,
   previewModelName,
 }: ExportScreenProps) {
@@ -429,6 +432,7 @@ export function ExportScreen({
             <VideoPreview
               job={mp4Job}
               code={previewCode}
+              scenes={previewScenes}
               tunables={tunables}
               onParamChange={onParamChange}
               modelName={previewModelName}

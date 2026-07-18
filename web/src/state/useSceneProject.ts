@@ -46,6 +46,13 @@ export interface SceneModel {
   code: string;
   blenderCode: string;
   createdAt: number;
+  /**
+   * When set, this row is a co-view merge of other models. Children stay
+   * independent (not constrained); the viewport places them side-by-side on
+   * the same ground plane. `code`/`blenderCode` mirror the first child so
+   * export/modify/tunables still have a primary target.
+   */
+  childIds?: string[];
 }
 
 /** A rendered scene placed on the Video screen's timeline. */
@@ -85,6 +92,8 @@ export function useSceneProject() {
     },
   ]);
   const [activeModelId, setActiveModelId] = useState<string>(DEFAULT_MODEL_ID);
+  /** Shift-click multi-select for building a merge; always includes the active id when non-empty. */
+  const [selectedModelIds, setSelectedModelIds] = useState<string[]>([DEFAULT_MODEL_ID]);
   const [clips, setClips] = useState<Clip[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
@@ -100,6 +109,12 @@ export function useSceneProject() {
   );
   const code = activeModel.code;
   const blenderCode = activeModel.blenderCode;
+
+  /** Scene modules the Model-screen viewport should co-render (one entry, or several for a merge). */
+  const viewportScenes = useMemo(
+    () => resolveViewportScenes(activeModel, models),
+    [activeModel, models],
+  );
 
   const tunables = useMemo(() => {
     try {
@@ -128,7 +143,11 @@ export function useSceneProject() {
     [clips, playback.currentTime],
   );
   const previewModel = activeClip ? models.find((m) => m.id === activeClip.modelId) : undefined;
-  const previewCode = previewModel?.code;
+  const previewScenes = useMemo(
+    () => (previewModel ? resolveViewportScenes(previewModel, models) : []),
+    [previewModel, models],
+  );
+  const previewCode = previewScenes[0]?.code ?? previewModel?.code;
   const previewTime = activeClip ? playback.currentTime - activeClip.start : playback.currentTime;
   const previewModelName = previewModel?.name ?? activeModel.name;
 
@@ -196,6 +215,7 @@ export function useSceneProject() {
           },
         ]);
         setActiveModelId(id);
+        setSelectedModelIds([id]);
         setStatus({
           kind: 'info',
           text:
@@ -237,7 +257,82 @@ export function useSceneProject() {
 
   const setActiveModel = useCallback((id: string) => {
     setActiveModelId(id);
+    setSelectedModelIds([id]);
   }, []);
+
+  /**
+   * Click selects one model; shift-click toggles it in the multi-select set
+   * used for Merge (does not remove the previous selection).
+   */
+  const selectModel = useCallback((id: string, options?: { shiftKey?: boolean }) => {
+    if (options?.shiftKey) {
+      setSelectedModelIds((current) => {
+        if (current.includes(id)) {
+          if (current.length <= 1) return current;
+          return current.filter((entry) => entry !== id);
+        }
+        return [...current, id];
+      });
+      setActiveModelId(id);
+      return;
+    }
+    setActiveModelId(id);
+    setSelectedModelIds([id]);
+  }, []);
+
+  /**
+   * Creates a co-view merge from the current multi-selection. Children remain
+   * separate models; the new row only groups them for side-by-side viewing.
+   */
+  const mergeSelectedModels = useCallback(() => {
+    const ids = selectedModelIds.filter((id) => models.some((m) => m.id === id));
+    if (ids.length < 2) {
+      setStatus({ kind: 'error', text: 'Shift-click at least two models, then merge.' });
+      return;
+    }
+
+    // Flatten nested merges so the viewport always gets leaf scene modules.
+    const leafIds: string[] = [];
+    for (const id of ids) {
+      const model = models.find((m) => m.id === id);
+      if (!model) continue;
+      if (model.childIds?.length) {
+        for (const childId of model.childIds) {
+          if (!leafIds.includes(childId)) leafIds.push(childId);
+        }
+      } else if (!leafIds.includes(id)) {
+        leafIds.push(id);
+      }
+    }
+    if (leafIds.length < 2) {
+      setStatus({ kind: 'error', text: 'Need at least two distinct models to merge.' });
+      return;
+    }
+
+    const children = leafIds
+      .map((id) => models.find((m) => m.id === id))
+      .filter((m): m is SceneModel => Boolean(m));
+    const primary = children[0];
+    const id = makeId();
+    const name = children.map((m) => m.name).join(' + ');
+    setModels((current) => [
+      ...current,
+      {
+        id,
+        name: name.length > 48 ? `${name.slice(0, 48)}…` : name,
+        code: primary.code,
+        blenderCode: primary.blenderCode,
+        createdAt: Date.now(),
+        childIds: leafIds,
+      },
+    ]);
+    setActiveModelId(id);
+    setSelectedModelIds([id]);
+    setStatus({
+      kind: 'info',
+      text: `Merged ${children.length} models onto one plane (not constrained — side-by-side view).`,
+    });
+  }, [selectedModelIds, models]);
 
   // Places a 1-second clip for `modelId` at the given whole second, dropped
   // from the Materials list. Per the one-model-per-second invariant, any
@@ -348,13 +443,18 @@ export function useSceneProject() {
     blenderStatus,
     models,
     activeModelId,
+    selectedModelIds,
     setActiveModel,
+    selectModel,
+    mergeSelectedModels,
+    viewportScenes,
     clips,
     addClipAtSecond,
     timelineClips,
     timelineTotal,
     playback,
     previewCode,
+    previewScenes,
     previewTime,
     previewModelName,
     generate,
@@ -373,4 +473,20 @@ function downloadBlob(blob: Blob, name: string): void {
   anchor.download = name;
   anchor.click();
   URL.revokeObjectURL(url);
+}
+
+/** Resolve a model (or merge) into the scene-module entries the viewport should load. */
+export function resolveViewportScenes(
+  model: SceneModel,
+  models: SceneModel[],
+): Array<{ id: string; code: string }> {
+  if (model.childIds?.length) {
+    const scenes: Array<{ id: string; code: string }> = [];
+    for (const childId of model.childIds) {
+      const child = models.find((m) => m.id === childId);
+      if (child?.code) scenes.push({ id: child.id, code: child.code });
+    }
+    if (scenes.length > 0) return scenes;
+  }
+  return [{ id: model.id, code: model.code }];
 }

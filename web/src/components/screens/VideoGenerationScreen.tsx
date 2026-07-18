@@ -31,6 +31,8 @@ export interface VideoGenerationScreenProps {
   playback: TimelinePlayback;
   /** Scene code for whatever's under the playhead (from `useSceneProject.previewCode`); undefined shows a black screen. */
   previewCode: string | undefined;
+  /** Multi-scene co-view when the playhead clip is a merge. */
+  previewScenes?: Array<{ id: string; code: string }>;
   /** Playhead position local to the active clip (from `useSceneProject.previewTime`). */
   previewTime: number;
   /** Display name for whatever's under the playhead (from `useSceneProject.previewModelName`). */
@@ -64,6 +66,7 @@ export function VideoGenerationScreen({
   timelineTotal,
   playback,
   previewCode,
+  previewScenes,
   previewTime,
   previewModelName,
   onDropModel,
@@ -140,6 +143,7 @@ export function VideoGenerationScreen({
             <VideoPreview
               job={mp4Job}
               code={previewCode}
+              scenes={previewScenes}
               tunables={tunables}
               onParamChange={onParamChange}
               modelName={previewModelName}
@@ -204,8 +208,10 @@ function MaterialsList({ models }: { models: SceneModel[] }) {
         >
           <div className="h-8 w-8 flex-shrink-0 rounded-sm border border-border bg-bg" aria-hidden="true" />
           <span className="overflow-hidden text-ellipsis whitespace-nowrap text-[13px] text-text" title={m.name}>
-
             {m.name}
+            {m.childIds?.length ? (
+              <span className="ml-1 font-normal text-text-dim">· merge</span>
+            ) : null}
           </span>
         </li>
       ))}

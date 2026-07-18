@@ -41,6 +41,7 @@ export function App() {
                 timelineTotal={project.timelineTotal}
                 playback={project.playback}
                 previewCode={project.previewCode}
+                previewScenes={project.previewScenes}
                 previewTime={project.previewTime}
                 previewModelName={project.previewModelName}
                 onDropModel={project.addClipAtSecond}
@@ -72,6 +73,7 @@ export function App() {
                 timelineTotal={project.timelineTotal}
                 playback={project.playback}
                 previewCode={project.previewCode}
+                previewScenes={project.previewScenes}
                 previewTime={project.previewTime}
                 previewModelName={project.previewModelName}
               />

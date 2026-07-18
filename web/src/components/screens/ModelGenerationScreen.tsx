@@ -25,10 +25,10 @@ interface Props {
  * The left column is chat (scrollback, drives generate/modify) over the
  * Models & Layers list; both read/write `useSceneProject`, which is lifted
  * to `App` so this stays in sync with the Video screen's Materials pane.
- * Clicking a model row only activates it (for the viewport). The tunable
- * controls floater instead opens from clicking the model *in the viewport*
- * itself (a raycast hit on the rendered object), showing the active model's
- * sliders/switches right where it was clicked.
+ * Clicking a model row activates it (for the viewport). Shift-click adds to a
+ * multi-select; Merge Selected places those models side-by-side on one plane
+ * (not constrained). The tunable controls floater opens from clicking the
+ * model *in the viewport* itself (a raycast hit on the rendered object).
  */
 export function ModelGenerationScreen({ project }: Props) {
   const [clickAnchor, setClickAnchor] = useState<{ x: number; y: number } | null>(null);
@@ -82,13 +82,15 @@ export function ModelGenerationScreen({ project }: Props) {
             <ModelsLayersList
               models={project.models}
               activeModelId={project.activeModelId}
-              onSelectModel={project.setActiveModel}
+              selectedModelIds={project.selectedModelIds}
+              onSelectModel={project.selectModel}
+              onMergeSelected={project.mergeSelectedModels}
             />
           </div>
         </section>
       </div>
       <ResizeHandle direction="horizontal" onPointerDown={leftWidth.startDragging} label="Resize sidebar" />
-      <Viewport code={project.code} onModelClick={setClickAnchor} />
+      <Viewport scenes={project.viewportScenes} onModelClick={setClickAnchor} />
       {clickAnchor && (
         <ControlsFloater
           anchor={clickAnchor}
