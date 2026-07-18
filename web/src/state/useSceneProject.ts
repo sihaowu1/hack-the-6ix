@@ -8,7 +8,7 @@ import {
   type RenderSettings,
 } from '@motionforge/shared';
 import * as api from '../api/client';
-import { deriveTimelineTotal, type TimelineClip } from '../components/timeline/timelineMath';
+import { deriveTimelineTotal, MIN_CLIP_DURATION, type TimelineClip } from '../components/timeline/timelineMath';
 import { useTimelinePlayback } from '../components/timeline/useTimelinePlayback';
 
 /**
@@ -86,6 +86,7 @@ export function useSceneProject() {
   ]);
   const [activeModelId, setActiveModelId] = useState<string>(DEFAULT_MODEL_ID);
   const [clips, setClips] = useState<Clip[]>([]);
+  const [clipboardClip, setClipboardClip] = useState<Clip | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
   const [mp4Job, setMp4Job] = useState<Mp4JobState | null>(null);
@@ -255,6 +256,56 @@ export function useSceneProject() {
     [models],
   );
 
+  // Timeline right-click menu: delete removes a clip outright; copy stashes
+  // it in an in-memory clipboard; paste drops the stashed clip at the given
+  // whole second, replacing any clip already occupying that span (same
+  // overlap rule as `addClipAtSecond`).
+  const deleteClip = useCallback((id: string) => {
+    setClips((current) => current.filter((c) => c.id !== id));
+  }, []);
+
+  const copyClip = useCallback(
+    (id: string) => {
+      const clip = clips.find((c) => c.id === id);
+      if (clip) setClipboardClip(clip);
+    },
+    [clips],
+  );
+
+  const pasteClip = useCallback(
+    (second: number) => {
+      if (!clipboardClip) return;
+      const start = Math.max(0, Math.floor(second));
+      const duration = clipboardClip.duration;
+      setClips((current) =>
+        [
+          ...current.filter((c) => !(start < c.start + c.duration && start + duration > c.start)),
+          { ...clipboardClip, id: makeId(), start },
+        ].sort((a, b) => a.start - b.start),
+      );
+    },
+    [clipboardClip],
+  );
+
+  // Timeline resize handle: changes only how long a clip is shown, not its
+  // playback rate — `updateScene`'s `time` still advances one second per
+  // second, so a periodic animation keeps looping past the clip's original
+  // length and a one-shot animation does whatever its own code does at
+  // large `time` values. Clamped to a minimum width and to the start of the
+  // next clip on the timeline so resizing can't create an overlap.
+  const resizeClip = useCallback((id: string, duration: number) => {
+    setClips((current) => {
+      const clip = current.find((c) => c.id === id);
+      if (!clip) return current;
+      const next = current
+        .filter((c) => c.id !== id && c.start >= clip.start)
+        .reduce<Clip | undefined>((closest, c) => (!closest || c.start < closest.start ? c : closest), undefined);
+      const maxDuration = next ? next.start - clip.start : Infinity;
+      const clamped = Math.min(Math.max(duration, MIN_CLIP_DURATION), maxDuration);
+      return current.map((c) => (c.id === id ? { ...c, duration: clamped } : c));
+    });
+  }, []);
+
   const exportCode = useCallback(
     () =>
       run('Exporting code…', async () => {
@@ -351,6 +402,11 @@ export function useSceneProject() {
     setActiveModel,
     clips,
     addClipAtSecond,
+    deleteClip,
+    copyClip,
+    pasteClip,
+    resizeClip,
+    hasClipboardClip: clipboardClip !== null,
     timelineClips,
     timelineTotal,
     playback,

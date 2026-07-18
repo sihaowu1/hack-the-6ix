@@ -40,6 +40,16 @@ export interface VideoGenerationScreenProps {
    * `modelId` at whole-second `second` (from `useSceneProject.addClipAtSecond`).
    */
   onDropModel: (modelId: string, second: number) => void;
+  /** Deletes a clip, from the timeline's right-click menu (from `useSceneProject.deleteClip`). */
+  onDeleteClip: (clipId: string) => void;
+  /** Stashes a clip in the clipboard, from the timeline's right-click menu (from `useSceneProject.copyClip`). */
+  onCopyClip: (clipId: string) => void;
+  /** Pastes the clipboard clip at a whole second, from the timeline's right-click menu (from `useSceneProject.pasteClip`). */
+  onPasteClip: (second: number) => void;
+  /** Whether a clip is currently in the clipboard (from `useSceneProject.hasClipboardClip`). */
+  hasClipboardClip: boolean;
+  /** Resizes a clip via its timeline drag handle (from `useSceneProject.resizeClip`). */
+  onResizeClip: (clipId: string, duration: number) => void;
   /** Optional slot for the chat pane (component not built yet — see SPEC.md Issue 4). */
   chat?: ReactNode;
 }
@@ -67,6 +77,11 @@ export function VideoGenerationScreen({
   previewTime,
   previewModelName,
   onDropModel,
+  onDeleteClip,
+  onCopyClip,
+  onPasteClip,
+  hasClipboardClip,
+  onResizeClip,
   chat,
 }: VideoGenerationScreenProps) {
   const [isDropTarget, setIsDropTarget] = useState(false);
@@ -164,6 +179,11 @@ export function VideoGenerationScreen({
             totalDuration={timelineTotal}
             playback={playback}
             onDropModel={onDropModel}
+            onDeleteClip={onDeleteClip}
+            onCopyClip={onCopyClip}
+            onPasteClip={onPasteClip}
+            hasClipboardClip={hasClipboardClip}
+            onResizeClip={onResizeClip}
           />
         </Pane>
       </div>

@@ -44,6 +44,11 @@ export function App() {
                 previewTime={project.previewTime}
                 previewModelName={project.previewModelName}
                 onDropModel={project.addClipAtSecond}
+                onDeleteClip={project.deleteClip}
+                onCopyClip={project.copyClip}
+                onPasteClip={project.pasteClip}
+                hasClipboardClip={project.hasClipboardClip}
+                onResizeClip={project.resizeClip}
                 chat={
                   <ChatPanel
                     busy={project.busy}
