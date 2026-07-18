@@ -56,7 +56,7 @@ export async function generateModelForAspectRatio(
       model: config.ai.model,
       max_tokens: config.ai.maxTokens,
       thinking: { type: 'adaptive' },
-      system: `${loadSkill('threejs-modelling')}\n\n${loadSkill('camera-composition')}`,
+      system: `${loadSkill('threejs-modelling')}\n\n${loadSkill('scene-blocking')}\n\n${loadSkill('camera-composition')}`,
       messages,
     });
     const response = await stream.finalMessage();

@@ -91,6 +91,72 @@ export function parseAnimationTracks(code: string): AnimationTrack[] {
   return tracks;
 }
 
+/**
+ * Pure, three-free static checks on a module's ANIMATION clip. Returns a list
+ * of human-readable problems (empty means the clip's declared keyframes/duration
+ * are internally consistent). This is the parse-level half of the animation
+ * verifier — spatial checks (collisions, ground, motion) require executing the
+ * module and live in the server's `verifyAnimation`.
+ *
+ * `expectedDuration`, when provided, is the shared clip length the director
+ * asked every subject to use; a mismatch is reported so the stitch stays in sync.
+ */
+export function checkAnimationClipStatic(code: string, expectedDuration?: number): string[] {
+  const issues: string[] = [];
+  const duration = parseAnimationDuration(code);
+  if (duration === undefined) {
+    issues.push('ANIMATION.duration is missing or not a positive number');
+  } else if (
+    expectedDuration !== undefined &&
+    Math.abs(duration - expectedDuration) > 0.01
+  ) {
+    issues.push(
+      `ANIMATION.duration is ${duration}s but the shared clip length is ${expectedDuration}s`,
+    );
+  }
+
+  const tracks = parseAnimationTracks(code);
+  const upper = duration ?? expectedDuration;
+  for (const track of tracks) {
+    const label = `track "${track.part}" (${track.channel}${track.axis ? `.${track.axis}` : ''})`;
+    const kfs = track.keyframes;
+    if (kfs.length < 2) {
+      issues.push(`${label} has fewer than 2 keyframes, so nothing moves`);
+      continue;
+    }
+    let prevT = -Infinity;
+    let ascending = true;
+    let allFinite = true;
+    let minV = Infinity;
+    let maxV = -Infinity;
+    for (const kf of kfs) {
+      if (!Number.isFinite(kf.t) || !Number.isFinite(kf.v)) allFinite = false;
+      if (kf.t < prevT - 1e-6) ascending = false;
+      prevT = kf.t;
+      if (kf.v < minV) minV = kf.v;
+      if (kf.v > maxV) maxV = kf.v;
+    }
+    if (!allFinite) issues.push(`${label} has a non-finite keyframe t or v`);
+    if (!ascending) issues.push(`${label} keyframes are not sorted ascending by t`);
+    if (kfs[0].t > 1e-3) {
+      issues.push(`${label} first keyframe starts at t=${kfs[0].t}s, not t=0`);
+    }
+    if (upper !== undefined) {
+      const last = kfs[kfs.length - 1];
+      if (last.t > upper + 1e-3) {
+        issues.push(`${label} last keyframe t=${last.t}s exceeds duration ${upper}s`);
+      }
+      if (kfs.some((kf) => kf.t < -1e-6)) {
+        issues.push(`${label} has a negative keyframe t`);
+      }
+    }
+    if (Number.isFinite(minV) && Number.isFinite(maxV) && Math.abs(maxV - minV) < 1e-6) {
+      issues.push(`${label} keyframe values never change, so the part does not move`);
+    }
+  }
+  return issues;
+}
+
 /** Build a partial AnimationClip summary from module source. */
 export function parseAnimationClip(code: string): AnimationClip | undefined {
   const duration = parseAnimationDuration(code);

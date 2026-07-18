@@ -1,6 +1,9 @@
 import Anthropic from '@anthropic-ai/sdk';
 import {
   extractCameraLiteral,
+  fuseSlugs,
+  parseAnimationTracks,
+  patchParam,
   replaceCameraLiteral,
   stitchMergeAnimation,
   validateSceneModule,
@@ -9,16 +12,19 @@ import {
 import { config } from '../config';
 import { loadSkill } from '../ai/skills';
 import { extractFencedBlocks } from '../ai/extract';
+import { logJson } from '../utils/logger';
+import { verifyAnimatedModule, type AnimationIssue } from './verifyAnimation';
 
 /**
  * Video agent: a small multi-agent pipeline.
  *
  *   Director (JSON plan) → N animation agents (one per subject, parallel)
- *     → deterministic stitch → Camera agent (composition), when needed.
+ *     → deterministic stitch → verify + fix → Camera (composition), when needed.
  *
  * Single models are the degenerate case: one subject ("self"), no stitch.
  * Merges send their pristine child modules so each subject is animated in
  * isolation, then re-fused deterministically (no LLM rewrites the wrapper).
+ * Every stage logs structured records (see utils/logger.logJson).
  */
 
 const JS_LANGS = new Set(['js', 'javascript']);
@@ -55,6 +61,12 @@ interface VideoPlan {
 }
 
 const SELF_SUBJECT_ID = 'self';
+const MAX_FIX_ATTEMPTS = 2;
+const GAP_STEP = 1.5;
+
+function makeRunId(): string {
+  return Math.random().toString(36).slice(2, 10);
+}
 
 // ─── Director ────────────────────────────────────────────────────────────────
 
@@ -113,6 +125,7 @@ export async function planVideo(
   client: Anthropic,
   prompt: string,
   subjects: Array<{ id: string; name: string }>,
+  runId: string,
 ): Promise<VideoPlan> {
   const subjectList = subjects.map((s) => `- id "${s.id}": ${s.name}`).join('\n');
   const stream = client.messages.stream({
@@ -134,7 +147,18 @@ export async function planVideo(
     .trim();
 
   const parsed = safeParsePlan(text, subjects);
-  return parsed ?? heuristicPlan(prompt, subjects);
+  const plan = parsed ?? heuristicPlan(prompt, subjects);
+  logJson(`animate:${runId}:director`, {
+    runId,
+    stage: 'director',
+    fallback: parsed === null,
+    mode: plan.mode,
+    duration: plan.duration,
+    name: plan.name,
+    cameraBrief: plan.cameraBrief,
+    subjects: plan.subjects.map((s) => ({ id: s.id, brief: s.brief })),
+  });
+  return plan;
 }
 
 function safeParsePlan(
@@ -211,6 +235,7 @@ async function completeModule(
   client: Anthropic,
   system: string,
   firstUserContent: string,
+  onReject?: (errors: string[], attempt: number) => void,
 ): Promise<ModelCode> {
   const messages: Anthropic.MessageParam[] = [{ role: 'user', content: firstUserContent }];
   let errors: string[] = [];
@@ -226,6 +251,7 @@ async function completeModule(
     if (js && errors.length === 0) {
       return { code: js.code };
     }
+    onReject?.(errors, attempt);
     messages.push({ role: 'assistant', content: response.content as Anthropic.MessageParam['content'] });
     messages.push({
       role: 'user',
@@ -239,6 +265,14 @@ async function completeModule(
 
 // ─── Animation agent (one subject) ───────────────────────────────────────────
 
+function correctionNote(issues: string[]): string {
+  return (
+    `\n\nThe previous attempt was rejected by the host verifier for these problems — ` +
+    `fix exactly these and change nothing else:\n` +
+    issues.map((m) => `- ${m}`).join('\n')
+  );
+}
+
 function animationPrompt(brief: string, code: string, duration: number): string {
   return (
     `Add a user-requested, one-shot animation to the current Three.js model.\n\n` +
@@ -250,6 +284,7 @@ function animationPrompt(brief: string, code: string, duration: number): string 
     'Prefer ANIMATION.tracks on existing part keys. Insert a pivot/hinge only when ' +
     'correct joint motion requires it. Export ANIMATION with name + duration + tracks[]. ' +
     'Drive motion from time in updateScene (clamp, hold at end — do not loop). ' +
+    'Keep every part resting at y >= 0 (do not sink through the floor). ' +
     'Do NOT set or change CAMERA. Only animate what the instruction asks for. ' +
     'Return the complete updated ```javascript block.'
   );
@@ -260,8 +295,23 @@ async function runAnimation(
   brief: string,
   code: string,
   duration: number,
+  logCtx?: { runId: string; subject: string },
 ): Promise<ModelCode> {
-  return completeModule(client, loadSkill('threejs-animation'), animationPrompt(brief, code, duration));
+  return completeModule(
+    client,
+    loadSkill('threejs-animation'),
+    animationPrompt(brief, code, duration),
+    logCtx
+      ? (errors, attempt) =>
+          logJson(`animate:${logCtx.runId}:animator`, {
+            runId: logCtx.runId,
+            stage: 'animator',
+            subject: logCtx.subject,
+            rejectedAttempt: attempt,
+            validatorErrors: errors,
+          })
+      : undefined,
+  );
 }
 
 // ─── Camera agent (composition) ──────────────────────────────────────────────
@@ -329,6 +379,187 @@ async function runMergeCamera(
   return null;
 }
 
+// ─── Verify + fix ────────────────────────────────────────────────────────────
+
+interface SingleFixContext {
+  kind: 'single';
+  brief: string;
+}
+
+interface MergeFixContext {
+  kind: 'merge';
+  children: AnimateChild[];
+  animatedChildren: Array<{ name: string; code: string }>;
+  slugs: string[];
+  briefById: Map<string, string>;
+  movingSlugs: string[];
+  name: string;
+  previousFusedCode: string;
+}
+
+type FixContext = SingleFixContext | MergeFixContext;
+
+async function fixSingle(
+  client: Anthropic,
+  code: string,
+  issues: AnimationIssue[],
+  duration: number,
+  ctx: SingleFixContext,
+  runId: string,
+): Promise<string> {
+  const messages = issues.map((i) => i.message);
+  const brief = ctx.brief + correctionNote(messages);
+  const res = await completeModule(
+    client,
+    loadSkill('threejs-animation'),
+    animationPrompt(brief, code, duration),
+  );
+  logJson(`animate:${runId}:fix`, {
+    runId,
+    stage: 'fix',
+    target: 'single',
+    fixedIssues: messages,
+  });
+  return res.code;
+}
+
+async function fixMerge(
+  client: Anthropic,
+  code: string,
+  issues: AnimationIssue[],
+  duration: number,
+  ctx: MergeFixContext,
+  gapBoost: number,
+  runId: string,
+): Promise<{ code: string; gapBoost: number }> {
+  const perSubject = new Map<string, string[]>();
+  const globalIssues: string[] = [];
+  let interpenetration = false;
+
+  for (const issue of issues) {
+    if (issue.kind === 'interpenetration') {
+      interpenetration = true;
+      continue;
+    }
+    if (issue.subjectSlug) {
+      const list = perSubject.get(issue.subjectSlug) ?? [];
+      list.push(issue.message);
+      perSubject.set(issue.subjectSlug, list);
+    } else {
+      globalIssues.push(issue.message);
+    }
+  }
+  // Global (unattributable) issues apply to every moving subject.
+  if (globalIssues.length > 0) {
+    for (const slug of ctx.movingSlugs) {
+      const list = perSubject.get(slug) ?? [];
+      perSubject.set(slug, [...list, ...globalIssues]);
+    }
+  }
+
+  // Re-animate affected children from their pristine modules, then re-stitch.
+  let reanimated = false;
+  for (const [slug, messages] of perSubject) {
+    const idx = ctx.slugs.indexOf(slug);
+    if (idx < 0) continue;
+    const child = ctx.children[idx];
+    const baseBrief = (ctx.briefById.get(child.id) ?? '').trim() || 'Animate this subject.';
+    const res = await runAnimation(client, baseBrief + correctionNote(messages), child.code, duration, {
+      runId,
+      subject: slug,
+    });
+    ctx.animatedChildren[idx] = { name: child.name, code: res.code };
+    reanimated = true;
+    logJson(`animate:${runId}:fix`, {
+      runId,
+      stage: 'fix',
+      target: 'merge-subject',
+      subject: slug,
+      fixedIssues: messages,
+    });
+  }
+
+  let nextGap = gapBoost;
+  if (interpenetration) {
+    nextGap = gapBoost + GAP_STEP;
+    logJson(`animate:${runId}:fix`, {
+      runId,
+      stage: 'fix',
+      target: 'merge-placement',
+      action: 'increase-mergeGap',
+      gapBoost: nextGap,
+    });
+  }
+
+  let next = reanimated
+    ? stitchMergeAnimation(ctx.animatedChildren, {
+        name: ctx.name,
+        duration,
+        previousFusedCode: ctx.previousFusedCode,
+      })
+    : code;
+  // Re-stitch resets mergeGap to its default, so re-apply the accumulated boost.
+  if (nextGap > 0) next = patchParam(next, 'mergeGap', 1 + nextGap);
+
+  return { code: next, gapBoost: nextGap };
+}
+
+/**
+ * Verify the animated module and fix problems, re-checking after each fix.
+ * Returns the best code available; never throws (best-effort — showing motion
+ * beats erroring out). Residual issues are logged.
+ */
+async function verifyAndFix(
+  client: Anthropic,
+  code: string,
+  duration: number,
+  ctx: FixContext,
+  runId: string,
+): Promise<string> {
+  let current = code;
+  let gapBoost = 0;
+  const movingSlugs = ctx.kind === 'merge' ? ctx.movingSlugs : undefined;
+
+  for (let attempt = 0; attempt <= MAX_FIX_ATTEMPTS; attempt++) {
+    const issues = verifyAnimatedModule(current, { expectedDuration: duration, movingSlugs });
+    logJson(`animate:${runId}:verify`, {
+      runId,
+      stage: 'verify',
+      attempt,
+      issueCount: issues.length,
+      issues: issues.map((i) => ({ kind: i.kind, subject: i.subjectSlug, message: i.message })),
+    });
+    if (issues.length === 0) return current;
+    if (attempt >= MAX_FIX_ATTEMPTS) {
+      logJson(`animate:${runId}:verify`, {
+        runId,
+        stage: 'verify',
+        residual: true,
+        issues: issues.map((i) => ({ kind: i.kind, subject: i.subjectSlug, message: i.message })),
+      });
+      return current;
+    }
+
+    try {
+      if (ctx.kind === 'single') {
+        current = await fixSingle(client, current, issues, duration, ctx, runId);
+      } else {
+        const result = await fixMerge(client, current, issues, duration, ctx, gapBoost, runId);
+        current = result.code;
+        gapBoost = result.gapBoost;
+      }
+    } catch (err) {
+      logJson(`animate:${runId}:fix`, {
+        runId,
+        stage: 'fix',
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return current;
+    }
+  }
+  return current;
+}
+
 // ─── Orchestration ───────────────────────────────────────────────────────────
 
 export async function animateModel(
@@ -337,27 +568,51 @@ export async function animateModel(
   code: string,
   options: AnimateOptions = {},
 ): Promise<ModelCode> {
+  const runId = makeRunId();
+  const startedAt = Date.now();
   const { aspectRatio, children } = options;
   const isMerge = Array.isArray(children) && children.length >= 2;
   const subjects = isMerge
     ? children!.map((c) => ({ id: c.id, name: c.name }))
     : [{ id: SELF_SUBJECT_ID, name: 'the model' }];
 
-  const plan = await planVideo(client, prompt, subjects);
+  logJson(`animate:${runId}:start`, {
+    runId,
+    stage: 'start',
+    isMerge,
+    subjectCount: subjects.length,
+    aspectRatio: aspectRatio ?? null,
+  });
+
+  const plan = await planVideo(client, prompt, subjects, runId);
 
   if (plan.mode === 'composition') {
-    return runComposition(client, plan.cameraBrief ?? prompt, code, aspectRatio);
+    const result = await runComposition(client, plan.cameraBrief ?? prompt, code, aspectRatio);
+    logJson(`animate:${runId}:done`, { runId, stage: 'done', mode: plan.mode, elapsedMs: Date.now() - startedAt });
+    return result;
   }
 
   // Animation (and possibly camera): animate each subject in isolation.
   let animatedCode: string;
+  let fixContext: FixContext;
+
   if (isMerge) {
     const briefById = new Map(plan.subjects.map((s) => [s.id, s.brief]));
+    const slugs = fuseSlugs(children!.map((c) => c.name));
+    const movingSlugs = children!
+      .map((c, i) => ({ slug: slugs[i], brief: (briefById.get(c.id) ?? '').trim() }))
+      .filter((s) => s.brief.length > 0)
+      .map((s) => s.slug);
+
+    const animatorStart = Date.now();
     const animatedChildren = await Promise.all(
       children!.map(async (child) => {
         const brief = (briefById.get(child.id) ?? '').trim();
         if (!brief) return { name: child.name, code: child.code };
-        const res = await runAnimation(client, brief, child.code, plan.duration);
+        const res = await runAnimation(client, brief, child.code, plan.duration, {
+          runId,
+          subject: child.name,
+        });
         return { name: child.name, code: res.code };
       }),
     );
@@ -366,13 +621,38 @@ export async function animateModel(
       duration: plan.duration,
       previousFusedCode: code,
     });
+    logJson(`animate:${runId}:stitch`, {
+      runId,
+      stage: 'stitch',
+      elapsedMs: Date.now() - animatorStart,
+      subjects: animatedChildren.map((c, i) => ({
+        slug: slugs[i],
+        moving: movingSlugs.includes(slugs[i]),
+        trackCount: parseAnimationTracks(c.code).length,
+      })),
+    });
+
+    fixContext = {
+      kind: 'merge',
+      children: children!,
+      animatedChildren,
+      slugs,
+      briefById,
+      movingSlugs,
+      name: plan.name,
+      previousFusedCode: code,
+    };
   } else {
     const brief = plan.subjects[0]?.brief?.trim() || prompt;
-    const res = await runAnimation(client, brief, code, plan.duration);
+    const res = await runAnimation(client, brief, code, plan.duration, { runId, subject: 'the model' });
     animatedCode = res.code;
+    fixContext = { kind: 'single', brief };
   }
 
+  animatedCode = await verifyAndFix(client, animatedCode, plan.duration, fixContext, runId);
+
   if (plan.mode === 'animation') {
+    logJson(`animate:${runId}:done`, { runId, stage: 'done', mode: plan.mode, elapsedMs: Date.now() - startedAt });
     return { code: animatedCode };
   }
 
@@ -380,7 +660,19 @@ export async function animateModel(
   const cameraBrief = plan.cameraBrief ?? prompt;
   if (isMerge) {
     const literal = await runMergeCamera(client, cameraBrief, animatedCode, aspectRatio);
-    return { code: literal ? replaceCameraLiteral(animatedCode, literal) : animatedCode };
+    const finalCode = literal ? replaceCameraLiteral(animatedCode, literal) : animatedCode;
+    logJson(`animate:${runId}:camera`, {
+      runId,
+      stage: 'camera',
+      merge: true,
+      spliced: Boolean(literal),
+    });
+    logJson(`animate:${runId}:done`, { runId, stage: 'done', mode: plan.mode, elapsedMs: Date.now() - startedAt });
+    return { code: finalCode };
   }
-  return runComposition(client, cameraBrief, animatedCode, aspectRatio);
+
+  const result = await runComposition(client, cameraBrief, animatedCode, aspectRatio);
+  logJson(`animate:${runId}:camera`, { runId, stage: 'camera', merge: false, spliced: true });
+  logJson(`animate:${runId}:done`, { runId, stage: 'done', mode: plan.mode, elapsedMs: Date.now() - startedAt });
+  return result;
 }

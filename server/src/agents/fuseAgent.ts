@@ -67,7 +67,7 @@ async function completeWithRetry(
   client: Anthropic,
   messages: Anthropic.MessageParam[],
 ): Promise<ModelCode> {
-  const system = `${loadSkill('threejs-modelling')}\n\n---\n\n${loadSkill('camera-composition')}`;
+  const system = `${loadSkill('threejs-modelling')}\n\n---\n\n${loadSkill('scene-blocking')}\n\n${loadSkill('camera-composition')}`;
   let errors: string[] = [];
   for (let attempt = 0; attempt < 2; attempt++) {
     const stream = client.messages.stream({

@@ -93,6 +93,43 @@ Rules:
   `updateScene` — still export `name`, `duration`, and a `tracks` array naming
   the part so the host timeline works.
 
+## Invariants the host verifies
+
+After you return, the host executes your module headlessly with real Three.js and
+samples it across the clip. It rejects and asks you to fix any of these, so
+satisfy them the first time:
+
+- **Keyframes**: every track has `>= 2` keyframes; the first is at `t = 0`, the
+  last at `t = duration`; `t` values are sorted ascending and within
+  `[0, duration]`; every `t`/`v` is finite. A track whose values never change is
+  treated as "no motion" — either make it move or remove it.
+- **Motion happens**: a subject the request asked to move must actually change
+  (its tracked parts' transforms differ across time). Don't export a clip that
+  no-ops.
+- **Hold, don't loop**: the pose at `t = duration` must equal the pose at any
+  later time (the host samples `1.5·duration`). Always clamp `time` — never wrap
+  with `%`.
+- **Stay on the floor**: the subject's lowest point must stay at `y >= 0`
+  throughout. Ground-contact math for a limb of length `L` swinging by angle `θ`
+  about a pivot at height `h`: its tip reaches lowest `y ≈ h - L·(1 - cos θ)` (or
+  `h - L·sin θ` for a downward swing) — keep that `>= 0`, or raise the pivot, so
+  nothing sinks through the ground plane.
+- **Bounded**: don't send a subject flying far from the origin or scale it
+  unboundedly; keep motion proportional to the model's own size.
+- **Own footprint**: you only see your own subject in multi-subject scenes — keep
+  your motion within your own space so you don't drive through a neighbour you
+  can't see. Use the brief's timing to stagger interactions, not overlap.
+- **Deterministic**: no `Math.random()`, `Date`, or `performance.now()` — same
+  `time` must always give the same pose.
+
+## Correction pass
+
+If you are given the module plus a list of problems the host verifier found,
+treat it as a targeted fix: address **exactly** those problems, preserve
+everything else (geometry, PARAMS, other tracks, the parts that already work),
+and keep the same `ANIMATION.duration` you were told to use. Return the complete
+corrected `` ```javascript `` module.
+
 ## Sampling in updateScene (no loop)
 
 Always clamp — **never** wrap with `%` or restart:
