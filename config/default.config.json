@@ -3,7 +3,7 @@
     "port": 5174
   },
   "ai": {
-    "model": "anthropic/claude-opus-4-8",
+    "model": "anthropic/claude-sonnet-4.5",
     "maxTokens": 16000,
     "maxAgentIterations": 8
   },
