@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { SceneRuntime } from './SceneRuntime';
+import { SceneRuntime, type ObjectHandle } from './SceneRuntime';
 
 interface Props {
   code: string;
-  /** Fired when the user clicks any rendered object (not empty space). */
-  onModelClick?: (point: { x: number; y: number }) => void;
+  /**
+   * Fired when the user clicks any rendered object (not empty space). `handle`
+   * reads/writes that exact object's position and Y rotation directly in the
+   * runtime — no PARAMS, code, or AI involved.
+   */
+  onModelClick?: (point: { x: number; y: number }, handle: ObjectHandle) => void;
   /**
    * Seconds fed to `updateScene` on every frame. Omit for a free-running
    * preview (Model screen); pass a timeline playhead to freeze/scrub the
@@ -31,7 +35,7 @@ export function Viewport({ code, onModelClick, time }: Props) {
     if (!canvasRef.current || !containerRef.current) return;
     const runtime = new SceneRuntime(canvasRef.current);
     runtime.onError = (err) => setError(err.message);
-    runtime.onObjectClick = (point) => onModelClickRef.current?.(point);
+    runtime.onObjectClick = (point, handle) => onModelClickRef.current?.(point, handle);
     runtimeRef.current = runtime;
     const observer = new ResizeObserver(([entry]) => {
       runtime.resize(entry.contentRect.width, entry.contentRect.height);

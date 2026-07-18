@@ -2,6 +2,26 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { validateSceneModule, type SceneModule } from '@motionforge/shared';
 
+/** A clicked object's position (units) and Y-axis rotation (degrees). */
+export interface ObjectTransform {
+  x: number;
+  y: number;
+  z: number;
+  angle: number;
+}
+
+/**
+ * Bound to the specific object that was clicked. Reading/writing through this
+ * — rather than exposing the `THREE.Object3D` itself — keeps the manual
+ * position/rotation override entirely inside the runtime: it never touches
+ * PARAMS, generated code, or the AI agent, and it survives `updateScene`
+ * running every frame (see `SceneRuntime`'s render loop).
+ */
+export interface ObjectHandle {
+  getTransform(): ObjectTransform;
+  setTransform(transform: ObjectTransform): void;
+}
+
 /**
  * Live WebGL preview runtime. The editor's code string is hot-loaded as a real
  * ES module (Blob URL import), then buildScene/updateScene run against a
@@ -10,7 +30,7 @@ import { validateSceneModule, type SceneModule } from '@motionforge/shared';
 export class SceneRuntime {
   onError: (err: Error) => void = () => {};
   /** Fired when a raycast click hits any object in the scene (not empty space). */
-  onObjectClick: (point: { x: number; y: number }) => void = () => {};
+  onObjectClick: (point: { x: number; y: number }, handle: ObjectHandle) => void = () => {};
 
   private canvas: HTMLCanvasElement;
   private renderer: THREE.WebGLRenderer;
@@ -26,6 +46,14 @@ export class SceneRuntime {
   private controlledTime: number | null = null;
   private raycaster = new THREE.Raycaster();
   private pointerDownPos: { x: number; y: number } | null = null;
+  /**
+   * Manual position/rotation overrides set by clicking an object and dragging
+   * its transform sliders. Re-applied after `updateScene` every frame (see
+   * `loop`) so they hold even against an animated object's own per-frame
+   * position assignment. Cleared on every rebuild since the objects it keys
+   * on are disposed then.
+   */
+  private transformOverrides = new Map<THREE.Object3D, ObjectTransform>();
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -99,13 +127,43 @@ export class SceneRuntime {
     this.raycaster.setFromCamera(ndc, this.camera);
     const hits = this.raycaster.intersectObjects(this.scene.children, true);
     if (hits.length > 0) {
-      this.onObjectClick({ x: clientX, y: clientY });
+      const object = this.topLevelAncestor(hits[0].object);
+      this.onObjectClick(
+        { x: clientX, y: clientY },
+        {
+          getTransform: () => this.getObjectTransform(object),
+          setTransform: (transform) => this.setObjectTransform(object, transform),
+        },
+      );
     }
+  }
+
+  /** Walks up to whatever `buildScene` added directly to `this.scene` — moving that, not a sub-mesh, is what "the clicked object" means for compound objects. */
+  private topLevelAncestor(object: THREE.Object3D): THREE.Object3D {
+    let node = object;
+    while (node.parent && node.parent !== this.scene) node = node.parent;
+    return node;
+  }
+
+  private getObjectTransform(object: THREE.Object3D): ObjectTransform {
+    return {
+      x: object.position.x,
+      y: object.position.y,
+      z: object.position.z,
+      angle: THREE.MathUtils.radToDeg(object.rotation.y),
+    };
+  }
+
+  private setObjectTransform(object: THREE.Object3D, transform: ObjectTransform): void {
+    this.transformOverrides.set(object, transform);
+    object.position.set(transform.x, transform.y, transform.z);
+    object.rotation.y = THREE.MathUtils.degToRad(transform.angle);
   }
 
   private rebuild(): void {
     disposeScene(this.scene);
     this.scene = new THREE.Scene();
+    this.transformOverrides.clear();
     const module = this.module;
     if (!module) return;
     const camera = module.CAMERA;
@@ -139,6 +197,12 @@ export class SceneRuntime {
           this.onError(err instanceof Error ? err : new Error(String(err)));
         }
       }
+    }
+    // Re-assert manual overrides after updateScene, which may have just
+    // written its own position/rotation for this frame.
+    for (const [object, transform] of this.transformOverrides) {
+      object.position.set(transform.x, transform.y, transform.z);
+      object.rotation.y = THREE.MathUtils.degToRad(transform.angle);
     }
     this.controls.update();
     this.renderer.render(this.scene, this.camera);

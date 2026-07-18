@@ -3,6 +3,7 @@ import type { TunableParam } from '@motionforge/shared';
 import { ControlsFloater } from './controls/ControlsFloater';
 import type { ParamChange } from './controls/ControlsPanel';
 import type { Mp4JobState } from '../state/useSceneProject';
+import type { ObjectHandle } from '../viewport/SceneRuntime';
 import { Viewport } from '../viewport/Viewport';
 
 interface Props {
@@ -34,12 +35,16 @@ export function VideoPreview({
   enableClickFloater = true,
   time,
 }: Props) {
-  const [clickAnchor, setClickAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [selection, setSelection] = useState<{ anchor: { x: number; y: number }; handle: ObjectHandle } | null>(
+    null,
+  );
 
-  // A different model becoming active invalidates whatever was anchored.
+  // A different model becoming active, or its code changing underneath the
+  // click (e.g. an AI modify), invalidates whatever was selected — the old
+  // handle's object no longer exists once the scene rebuilds.
   useEffect(() => {
-    setClickAnchor(null);
-  }, [modelName]);
+    setSelection(null);
+  }, [modelName, code]);
 
   if (job?.status === 'done' && job.url) {
     return (
@@ -62,7 +67,11 @@ export function VideoPreview({
 
   return (
     <div className="relative h-full w-full">
-      <Viewport code={code} onModelClick={enableClickFloater ? setClickAnchor : undefined} time={time} />
+      <Viewport
+        code={code}
+        onModelClick={enableClickFloater ? (anchor, handle) => setSelection({ anchor, handle }) : undefined}
+        time={time}
+      />
       {job?.status === 'running' && (
         <div className={badgeClass}>Rendering… {Math.round((job.progress ?? 0) * 100)}%</div>
       )}
@@ -74,13 +83,14 @@ export function VideoPreview({
       {!job && enableClickFloater && (
         <div className={badgeClass}>Live preview — click the model to tweak it</div>
       )}
-      {enableClickFloater && clickAnchor && (
+      {enableClickFloater && selection && (
         <ControlsFloater
-          anchor={clickAnchor}
+          anchor={selection.anchor}
           title={modelName}
+          objectHandle={selection.handle}
           tunables={tunables}
           onChange={onParamChange}
-          onClose={() => setClickAnchor(null)}
+          onClose={() => setSelection(null)}
         />
       )}
     </div>
