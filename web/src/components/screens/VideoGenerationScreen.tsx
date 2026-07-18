@@ -1,16 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { ASPECT_RATIOS, type AspectRatio, type TunableParam } from '@motionforge/shared';
-import { ControlsFloater } from '../controls/ControlsFloater';
+import { ASPECT_RATIOS, type AspectRatio, type CameraSpec, type TunableParam } from '@motionforge/shared';
 import type { ParamChange } from '../controls/ControlsPanel';
 import { AspectRatioBox } from '../layout/AspectRatioBox';
 import { ResizeHandle } from '../layout/ResizeHandle';
 import { useResizable } from '../layout/useResizable';
 import { MODEL_DRAG_TYPE, Timeline } from '../timeline/Timeline';
-import type { TimelineClip } from '../timeline/timelineMath';
+import type { TimelineClip, TimelineLane } from '../timeline/timelineMath';
 import type { TimelinePlayback } from '../timeline/useTimelinePlayback';
 import type { Mp4JobState, SceneModel } from '../../state/useSceneProject';
-import type { ObjectHandle } from '../../viewport/SceneRuntime';
+import type { TrackOverlay } from '../../viewport/trackOverlay';
 import type { ViewportHandle } from '../../viewport/Viewport';
 import { VideoPreview } from '../VideoPreview';
 import { PANEL_HEADER } from '../ui/Panel';
@@ -34,6 +33,11 @@ export interface VideoGenerationScreenProps {
   mp4Job: Mp4JobState | null;
   /** Timeline clips (from `useSceneProject.timelineClips`), rendered in the bottom row. */
   timelineClips: TimelineClip[];
+  timelineLanes: TimelineLane[];
+  collapsedLaneIds: Set<string>;
+  onToggleLane: (laneId: string) => void;
+  timelineFocusModelId: string;
+  onTimelineFocusModelChange: (modelId: string) => void;
   /** Timeline length in seconds (from `useSceneProject.timelineTotal`). */
   timelineTotal: number;
   /**
@@ -48,10 +52,11 @@ export interface VideoGenerationScreenProps {
   previewScenes?: Array<{ id: string; code: string }>;
   /** Playhead position local to the active clip (from `useSceneProject.previewTime`). */
   previewTime: number;
+  previewTrackOverlays: TrackOverlay[];
   /** Display name for whatever's under the playhead (from `useSceneProject.previewModelName`). */
   previewModelName: string;
   /**
-   * Drops a material onto the video preview: places a 1-second clip for
+   * Drops a material onto the video preview: places a clip for
    * `modelId` at whole-second `second` (from `useSceneProject.addClipAtSecond`).
    */
   onDropModel: (modelId: string, second: number) => void;
@@ -68,20 +73,22 @@ export interface VideoGenerationScreenProps {
   hasClipboardClip: boolean;
   /** Resizes a clip via its timeline drag handle (from `useSceneProject.resizeClip`). */
   onResizeClip: (clipId: string, duration: number) => void;
-  /** Optional slot for the chat pane (component not built yet — see SPEC.md Issue 4). */
+  onMoveClip: (clipId: string, start: number) => void;
+  /** Live orbit pose shared across Video/Export (from `useSceneProject.userCamera`). */
+  userCamera: CameraSpec | null;
+  onUserCameraChange: (camera: CameraSpec) => void;
+  /** Optional slot for the chat pane. */
   chat?: ReactNode;
 }
 
 /**
  * Screen 2 — Video Generation.
  *
- *   +------------+------------+------------------+
- *   | Chat       | Materials  |                  |
- *   | (top-left) | (from      |  Resulting Video |
- *   |            |  Screen 1) |  (top-right)     |
- *   +------------+------------+------------------+
- *   |              Timeline (full width)         |
- *   +--------------------------------------------+
+ *   +------+-----------+------------------+
+ *   | Chat | Materials | Resulting Video  |
+ *   +------+-----------+------------------+
+ *   |         Timeline (full width)       |
+ *   +-------------------------------------+
  */
 export function VideoGenerationScreen({
   models,
@@ -91,11 +98,17 @@ export function VideoGenerationScreen({
   onParamChange,
   mp4Job,
   timelineClips,
+  timelineLanes,
+  collapsedLaneIds,
+  onToggleLane,
+  timelineFocusModelId,
+  onTimelineFocusModelChange,
   timelineTotal,
   playback,
   previewCode,
   previewScenes,
   previewTime,
+  previewTrackOverlays,
   previewModelName,
   onDropModel,
   activeModelId,
@@ -105,45 +118,35 @@ export function VideoGenerationScreen({
   onPasteClip,
   hasClipboardClip,
   onResizeClip,
+  onMoveClip,
+  userCamera,
+  onUserCameraChange,
   chat,
 }: VideoGenerationScreenProps) {
   const [isDropTarget, setIsDropTarget] = useState(false);
   const videoPreviewRef = useRef<ViewportHandle>(null);
-  const [cameraEditor, setCameraEditor] = useState<{ anchor: { x: number; y: number }; handle: ObjectHandle } | null>(
-    null,
-  );
   const [axesVisible, setAxesVisible] = useState(false);
 
-  const closeCameraEditor = () => {
-    videoPreviewRef.current?.clearCameraOverride();
-    setCameraEditor(null);
-  };
+  const timelineModelOptions = useMemo(
+    () => models.map((m) => ({ id: m.id, name: m.name })),
+    [models],
+  );
 
-  // The scene under the playhead changed (different clip, AI modify) — the
-  // camera the editor was pointed at may no longer reflect what's on screen.
-  useEffect(() => {
-    setCameraEditor(null);
-  }, [previewCode]);
-
-  // Re-applies the toggle whenever the live viewport (re)mounts — e.g. the
-  // timeline going from empty to occupied swaps in a fresh `Viewport`/
-  // `SceneRuntime` that starts with axes hidden. A code edit alone doesn't
-  // need this: `SceneRuntime` re-adds its own axes helper across rebuilds.
   useEffect(() => {
     videoPreviewRef.current?.setAxesVisible(axesVisible);
   }, [axesVisible, previewCode]);
 
   const chatWidth = useResizable({
     direction: 'horizontal',
-    initial: 280,
-    min: 200,
+    initial: 320,
+    min: 240,
     max: 640,
     storageKey: 'motionforge:video-screen:chat-width',
   });
   const materialsWidth = useResizable({
     direction: 'horizontal',
-    initial: 240,
-    min: 160,
+    initial: 260,
+    min: 180,
     max: 640,
     storageKey: 'motionforge:video-screen:materials-width',
   });
@@ -167,13 +170,22 @@ export function VideoGenerationScreen({
           gridTemplateColumns: `${chatWidth.size}px 1px ${materialsWidth.size}px 1px 1fr`,
         }}
       >
-        <Pane title="Chat">
-          {chat ?? <Placeholder label="Chat" hint="Prompt the AI to edit or extend the video." />}
-        </Pane>
+        <div className="flex min-h-0 min-w-0 flex-col bg-bg-panel">
+          <section className="flex min-h-0 flex-1 flex-col p-3" aria-label="Chat">
+            {chat ?? (
+              <Placeholder label="Chat" hint="Prompt the AI to edit or extend the video." />
+            )}
+          </section>
+        </div>
         <ResizeHandle direction="horizontal" onPointerDown={chatWidth.startDragging} label="Resize chat panel" />
-        <Pane title="Materials">
-          <MaterialsList models={models} activeModelId={activeModelId} onSelectModel={onSelectModel} />
-        </Pane>
+        <div className="flex min-h-0 min-w-0 flex-col bg-bg-panel">
+          <section className="flex min-h-0 flex-1 flex-col gap-2 p-3" aria-label="Materials">
+            <h2 className={`flex-shrink-0 ${PANEL_HEADER}`}>Materials</h2>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <MaterialsList models={models} activeModelId={activeModelId} onSelectModel={onSelectModel} />
+            </div>
+          </section>
+        </div>
         <ResizeHandle
           direction="horizontal"
           onPointerDown={materialsWidth.startDragging}
@@ -184,13 +196,6 @@ export function VideoGenerationScreen({
           bodyClassName="overflow-hidden p-0"
           actions={
             <div className="flex items-center gap-1.5">
-              <CameraAngleButton
-                disabled={!previewCode}
-                onOpen={(anchor) => {
-                  const handle = videoPreviewRef.current?.getCameraHandle();
-                  if (handle) setCameraEditor({ anchor, handle });
-                }}
-              />
               <AxesToggleButton pressed={axesVisible} onToggle={() => setAxesVisible((v) => !v)} />
               <AspectRatioSelect value={aspectRatio} onChange={onAspectRatioChange} />
             </div>
@@ -225,20 +230,11 @@ export function VideoGenerationScreen({
                 onParamChange={onParamChange}
                 modelName={previewModelName}
                 time={previewTime}
+                trackOverlays={previewTrackOverlays}
+                userCamera={userCamera}
+                onUserCameraChange={onUserCameraChange}
               />
             </AspectRatioBox>
-            {cameraEditor && (
-              <ControlsFloater
-                anchor={cameraEditor.anchor}
-                title="Camera"
-                objectHandle={cameraEditor.handle}
-                transformLabel="Camera"
-                showTunables={false}
-                tunables={[]}
-                onChange={() => {}}
-                onClose={closeCameraEditor}
-              />
-            )}
             {isDropTarget && (
               <div
                 className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[rgba(10,10,11,0.65)] text-[14px] font-semibold text-text"
@@ -255,6 +251,9 @@ export function VideoGenerationScreen({
         <Pane title="Timeline">
           <Timeline
             clips={timelineClips}
+            lanes={timelineLanes}
+            collapsedLaneIds={collapsedLaneIds}
+            onToggleLane={onToggleLane}
             totalDuration={timelineTotal}
             playback={playback}
             onDropModel={onDropModel}
@@ -263,6 +262,10 @@ export function VideoGenerationScreen({
             onPasteClip={onPasteClip}
             hasClipboardClip={hasClipboardClip}
             onResizeClip={onResizeClip}
+            onMoveClip={onMoveClip}
+            modelOptions={timelineModelOptions}
+            focusModelId={timelineFocusModelId}
+            onFocusModelChange={onTimelineFocusModelChange}
           />
         </Pane>
       </div>
@@ -275,7 +278,7 @@ function formatDropSecond(time: number): number {
 }
 
 /**
- * List of models generated on the Model Generation screen.
+ * List of models for the video screen.
  * Click selects the animation/edit target; drag onto the preview/timeline
  * places a clip (`MODEL_DRAG_TYPE`).
  */
@@ -290,10 +293,9 @@ function MaterialsList({
 }) {
   if (models.length === 0) {
     return (
-      <Placeholder
-        label="No materials yet"
-        hint="Generate a model on the Model Generation screen to see it here."
-      />
+      <p className="m-0 text-[13px] leading-normal text-text-faint">
+        Generate a model on the Model Generation screen to see it here.
+      </p>
     );
   }
   return (
@@ -303,25 +305,31 @@ function MaterialsList({
         return (
           <li
             key={m.id}
-            className={`flex cursor-grab items-center gap-2 rounded-lg border px-3 py-2 ${
-              isActive
-                ? 'border-accent bg-accent/10'
-                : 'border-border bg-bg-raised hover:border-border hover:bg-bg-raised/80'
+            className={`overflow-hidden rounded-lg border border-border ${
+              isActive ? 'bg-bg-hover' : 'bg-bg-raised'
             }`}
-            draggable
-            onClick={() => onSelectModel(m.id)}
-            onDragStart={(event) => {
-              event.dataTransfer.setData(MODEL_DRAG_TYPE, m.id);
-              event.dataTransfer.effectAllowed = 'copy';
-            }}
           >
-            <div className="h-8 w-8 flex-shrink-0 rounded-sm border border-border bg-bg" aria-hidden="true" />
-            <span className="overflow-hidden text-ellipsis whitespace-nowrap text-[14px] text-text" title={m.name}>
-              {m.name}
-              {m.childIds?.length ? (
-                <span className="ml-1 font-normal text-text-dim">· merge</span>
-              ) : null}
-            </span>
+            <div
+              className={`flex cursor-grab items-center gap-2 px-2.5 py-2 ${
+                isActive ? 'text-accent' : 'text-text'
+              }`}
+              draggable
+              onClick={() => onSelectModel(m.id)}
+              onDragStart={(event) => {
+                event.dataTransfer.setData(MODEL_DRAG_TYPE, m.id);
+                event.dataTransfer.effectAllowed = 'copy';
+              }}
+            >
+              <span
+                className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[13px] font-medium"
+                title={m.name}
+              >
+                {m.name}
+                {m.children?.length ? (
+                  <span className="ml-1.5 font-normal text-text-dim">· merge</span>
+                ) : null}
+              </span>
+            </div>
           </li>
         );
       })}
@@ -342,10 +350,6 @@ function Pane({
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-bg-panel" aria-label={title}>
-      {/* Same muted mono title the Model and Export screens use, so a pane
-          header reads identically wherever you meet one. Header and body share
-          one horizontal inset — at px-4 over p-3 every pane's content sat 4px
-          left of its own title. */}
       <header className={`flex items-center justify-between gap-2 border-b border-border px-4 py-3 ${PANEL_HEADER}`}>
         <span>{title}</span>
         {actions}
@@ -380,33 +384,6 @@ function AspectRatioSelect({
         </option>
       ))}
     </select>
-  );
-}
-
-/**
- * Button shown next to the aspect-ratio dropdown that opens the camera's
- * x/y/z position + angle editor (the same `TransformControls` used for a
- * clicked model, aimed at the live camera instead — see `SceneRuntime.getCameraHandle`).
- */
-function CameraAngleButton({
-  disabled,
-  onOpen,
-}: {
-  disabled: boolean;
-  onOpen: (anchor: { x: number; y: number }) => void;
-}) {
-  return (
-    <button
-      type="button"
-      className="rounded border border-border bg-bg px-1.5 py-0.5 text-[11px] font-medium normal-case tracking-normal text-text disabled:cursor-not-allowed disabled:opacity-40 hover:not-disabled:bg-bg-raised"
-      disabled={disabled}
-      onClick={(event) => {
-        const rect = event.currentTarget.getBoundingClientRect();
-        onOpen({ x: rect.left + rect.width / 2, y: rect.bottom });
-      }}
-    >
-      Camera
-    </button>
   );
 }
 

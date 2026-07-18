@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import type { RenderSettings, TunableParam } from '@motionforge/shared';
+import type { CameraSpec, RenderSettings, TunableParam } from '@motionforge/shared';
 import type { ModelFormat } from '../../viewport/exportScene';
 import { RequireAuth } from '../../auth/RequireAuth';
 import { useAuth } from '../../auth/useAuth';
@@ -9,9 +9,10 @@ import { useGitHubRepo } from '../useGitHubRepo';
 import { ResizeHandle } from '../layout/ResizeHandle';
 import { useResizable } from '../layout/useResizable';
 import { Timeline } from '../timeline/Timeline';
-import type { TimelineClip } from '../timeline/timelineMath';
+import type { TimelineClip, TimelineLane } from '../timeline/timelineMath';
 import type { TimelinePlayback } from '../timeline/useTimelinePlayback';
 import type { Mp4JobState, SceneModel } from '../../state/useSceneProject';
+import type { TrackOverlay } from '../../viewport/trackOverlay';
 import { VideoPreview } from '../VideoPreview';
 import { Button, ButtonLink, IconButton } from '../ui/Button';
 import { PANEL, PANEL_HEADER } from '../ui/Panel';
@@ -42,6 +43,9 @@ export interface ExportScreenProps {
   mp4Job: Mp4JobState | null;
   /** Timeline clips (from `useSceneProject.timelineClips`), rendered read-only below the preview. */
   timelineClips: TimelineClip[];
+  timelineLanes: TimelineLane[];
+  collapsedLaneIds: Set<string>;
+  onToggleLane: (laneId: string) => void;
   /** Timeline length in seconds (from `useSceneProject.timelineTotal`). */
   timelineTotal: number;
   /**
@@ -56,8 +60,12 @@ export interface ExportScreenProps {
   previewScenes?: Array<{ id: string; code: string }>;
   /** Playhead position local to the active clip (from `useSceneProject.previewTime`). */
   previewTime: number;
+  previewTrackOverlays: TrackOverlay[];
   /** Display name for whatever's under the playhead (from `useSceneProject.previewModelName`). */
   previewModelName: string;
+  /** Live orbit pose shared with the Video screen. */
+  userCamera: CameraSpec | null;
+  onUserCameraChange: (camera: CameraSpec) => void;
   /** Reset local models when the GitHub repo is unlinked. */
   onGitHubUnlink: () => void;
   /** Apply models pulled from the linked GitHub repo. */
@@ -106,12 +114,18 @@ export function ExportScreen({
   onParamChange,
   mp4Job,
   timelineClips,
+  timelineLanes,
+  collapsedLaneIds,
+  onToggleLane,
   timelineTotal,
   playback,
   previewCode,
   previewScenes,
   previewTime,
+  previewTrackOverlays,
   previewModelName,
+  userCamera,
+  onUserCameraChange,
   onGitHubUnlink,
   onGitHubPull,
 }: ExportScreenProps) {
@@ -134,7 +148,7 @@ export function ExportScreen({
   const githubModels = useMemo(
     () =>
       models
-        .filter((m) => m.code.trim() && !m.childIds?.length)
+        .filter((m) => m.code.trim())
         .map((m) => ({
           id: m.id,
           name: m.name,
@@ -545,12 +559,22 @@ export function ExportScreen({
               modelName={previewModelName}
               enableClickFloater={false}
               time={previewTime}
+              trackOverlays={previewTrackOverlays}
+              userCamera={userCamera}
+              onUserCameraChange={onUserCameraChange}
             />
           </div>
         </div>
         <ResizeHandle direction="vertical" onPointerDown={timelineHeight.startDragging} label="Resize timeline" />
         <div className="flex min-h-0 bg-bg-panel px-2 py-1">
-          <Timeline clips={timelineClips} totalDuration={timelineTotal} playback={playback} />
+          <Timeline
+            clips={timelineClips}
+            lanes={timelineLanes}
+            collapsedLaneIds={collapsedLaneIds}
+            onToggleLane={onToggleLane}
+            totalDuration={timelineTotal}
+            playback={playback}
+          />
         </div>
       </div>
     </main>

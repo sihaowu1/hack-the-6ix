@@ -10,7 +10,7 @@ interface Props {
 
 /**
  * The single prompt input driving the AI agents: "Generate" creates a new
- * scene from the prompt; "Modify" applies the prompt to the current scene.
+ * model from the prompt; "Modify" applies the prompt to the current model.
  *
  * Not currently mounted anywhere — both screens now have their own
  * scrollback-backed chat (`chat/ChatPanel.tsx`) instead of one global,

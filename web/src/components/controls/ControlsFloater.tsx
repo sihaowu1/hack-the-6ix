@@ -11,11 +11,11 @@ interface Props {
   /** Viewport-relative point (clientX/clientY) to anchor the floater near. */
   anchor: { x: number; y: number };
   title: string;
-  /** The clicked object's live position/rotation, from `Viewport`'s `onModelClick` — or the live camera, from the "Camera" button. */
+  /** The clicked object's live position/rotation, from `Viewport`'s `onModelClick`. */
   objectHandle?: ObjectHandle;
-  /** Heading above the transform sliders. Defaults to "Position"; pass "Camera" for the camera editor. */
+  /** Heading above the transform sliders. Defaults to "Position". */
   transformLabel?: string;
-  /** Set false to hide the PARAMS-driven tunables section (the camera editor has none). Defaults to true. */
+  /** Set false to hide the PARAMS-driven tunables section. Defaults to true. */
   showTunables?: boolean;
   tunables: TunableParam[];
   onChange: ParamChange;

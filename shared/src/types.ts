@@ -11,10 +11,10 @@ export interface TunableParam {
 
 /**
  * Preview/composition aspect ratio for the Video Generation screen. This is
- * purely a framing hint for scene generation (how the AI blocks objects and
+ * purely a framing hint for model generation (how the AI blocks objects and
  * points the camera) and for the live viewport's letterboxing — it is
- * independent of `RenderSettings.width`/`height`, which the remotion-mp4
- * skill picks separately at export time.
+ * independent of `RenderSettings.width`/`height`, which the export UI
+ * picks separately at render time.
  */
 export type AspectRatio = '16:9' | '1:1' | '4:3';
 
@@ -80,7 +80,7 @@ export interface SceneModule {
   updateScene(ctx: UpdateContext): void;
 }
 
-/** An optional reference image sent alongside a prompt for image-to-scene generation. */
+/** An optional reference image sent alongside a prompt for image-to-model generation. */
 export interface ReferenceImage {
   mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
   base64: string;

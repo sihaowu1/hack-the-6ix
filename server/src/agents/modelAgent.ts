@@ -12,7 +12,7 @@ import { extractFencedBlocks } from '../ai/extract';
 import { trace } from '../utils/trace';
 
 /**
- * The scene agent. Generation runs as two exchanges in one conversation:
+ * The model agent. Generation runs as two exchanges in one conversation:
  * turn 1 produces a structural SceneSpec, turn 2 writes the module from it.
  *
  * One conversation rather than two calls: the system prompt (two skills) is
@@ -182,7 +182,7 @@ function systemPrompt(hasImage: boolean): string {
   );
 }
 
-export async function generateScene(
+export async function generateModel(
   client: Anthropic,
   prompt: string,
   image?: ReferenceImage,
@@ -201,7 +201,7 @@ export async function generateScene(
   return { code, spec, summary };
 }
 
-export async function modifyScene(
+export async function modifyModel(
   client: Anthropic,
   prompt: string,
   code: string,

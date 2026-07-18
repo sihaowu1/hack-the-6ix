@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { fuseSlugs } from '@motionforge/shared';
 import { UploadSimple } from '@phosphor-icons/react';
 import { ChatPanel } from '../ChatPanel';
 import { ControlsFloater } from '../controls/ControlsFloater';
@@ -6,12 +7,18 @@ import { ResizeHandle } from '../layout/ResizeHandle';
 import { useResizable } from '../layout/useResizable';
 import { ModelsLayersList } from '../ModelsLayersList';
 import type { useSceneProject } from '../../state/useSceneProject';
+import type { ObjectHandle } from '../../viewport/SceneRuntime';
 import { Viewport } from '../../viewport/Viewport';
 import { IconButton } from '../ui/Button';
 import { PANEL_HEADER } from '../ui/Panel';
 
 interface Props {
   project: ReturnType<typeof useSceneProject>;
+}
+
+interface ClickSelection {
+  anchor: { x: number; y: number };
+  handle: ObjectHandle;
 }
 
 /**
@@ -24,10 +31,21 @@ interface Props {
  *   | Models & Layers  |   (full right column)     |
  *   | (bottom-left)    |                           |
  *   +------------------+---------------------------+
+ *
+ * The left column is chat (scrollback, drives generate/modify) over the
+ * Models & Layers list; both read/write `useSceneProject`, which is lifted
+ * to `App` so this stays in sync with the Video screen's Materials pane.
+ * Clicking a model row activates it (for the viewport). Shift-click adds to a
+ * multi-select; Merge Selected snapshots those models into an independent
+ * fused copy. The tunable controls floater opens from clicking the model in
+ * the viewport (raycast); merge child roots also expose TransformControls
+ * that persist into `{slug}_offset*` PARAMS on close.
  */
 export function ModelGenerationScreen({ project }: Props) {
-  const [clickAnchor, setClickAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [selection, setSelection] = useState<ClickSelection | null>(null);
   const [addingSlider, setAddingSlider] = useState(false);
+  const selectionRef = useRef(selection);
+  selectionRef.current = selection;
   const activeModel = project.models.find((m) => m.id === project.activeModelId);
   const importInputRef = useRef<HTMLInputElement>(null);
 
@@ -46,9 +64,49 @@ export function ModelGenerationScreen({ project }: Props) {
     storageKey: 'motionforge:model-screen:chat-height',
   });
 
+  const childSlugById = useMemo(() => {
+    const children = activeModel?.children;
+    if (!children?.length) return new Map<string, string>();
+    const slugs = fuseSlugs(children.map((c) => c.name));
+    const map = new Map<string, string>();
+    for (let i = 0; i < children.length; i++) {
+      map.set(slugs[i], children[i].id);
+    }
+    return map;
+  }, [activeModel?.children]);
+
+  const childSlugByIdRef = useRef(childSlugById);
+  childSlugByIdRef.current = childSlugById;
+  const setParamRef = useRef(project.setParam);
+  setParamRef.current = project.setParam;
+
+  const persistMergeOffsets = (handle: ObjectHandle) => {
+    const name = handle.objectName;
+    if (!name?.startsWith('merge:') || !handle.getLayoutOffsets) return;
+    const slug = name.slice('merge:'.length);
+    if (!childSlugByIdRef.current.has(slug)) return;
+    const offsets = handle.getLayoutOffsets();
+    if (!offsets) return;
+    setParamRef.current(`${slug}_offsetX`, offsets.x);
+    setParamRef.current(`${slug}_offsetY`, offsets.y);
+    setParamRef.current(`${slug}_offsetZ`, offsets.z);
+    setParamRef.current(`${slug}_yaw`, offsets.angle);
+  };
+
+  const closeFloater = () => {
+    const current = selectionRef.current;
+    if (current) persistMergeOffsets(current.handle);
+    setSelection(null);
+  };
+
+  // Selecting a different top-level model closes the floater (after persist).
   useEffect(() => {
-    setClickAnchor(null);
+    const current = selectionRef.current;
+    if (current) persistMergeOffsets(current.handle);
+    setSelection(null);
   }, [project.activeModelId]);
+
+  const floaterTitle = project.focusedChild?.name ?? activeModel?.name ?? 'Model';
 
   const handleAddSlider = async (name: string) => {
     setAddingSlider(true);
@@ -62,6 +120,7 @@ export function ModelGenerationScreen({ project }: Props) {
       setAddingSlider(false);
     }
   };
+
 
   return (
     <main
@@ -116,25 +175,48 @@ export function ModelGenerationScreen({ project }: Props) {
               models={project.models}
               activeModelId={project.activeModelId}
               selectedModelIds={project.selectedModelIds}
+              focusedChildId={project.focusedChildId}
               onSelectModel={project.selectModel}
+              onFocusMergeChild={project.focusMergeChild}
               onMergeSelected={project.mergeSelectedModels}
               onRenameModel={project.renameModel}
               onRenameLayer={project.renameModelLayer}
               onDeleteLayer={project.deleteModelLayer}
+              onRenameMergeChildLayer={project.renameMergeChildLayer}
+              onDeleteMergeChildLayer={project.deleteMergeChildLayer}
               onDeleteModel={project.deleteModel}
             />
           </div>
         </section>
       </div>
       <ResizeHandle direction="horizontal" onPointerDown={leftWidth.startDragging} label="Resize sidebar" />
-      <Viewport scenes={project.viewportScenes} onModelClick={setClickAnchor} showToolbar />
-      {clickAnchor && (
+      <Viewport
+        scenes={project.viewportScenes}
+        onModelClick={(anchor, handle) => {
+          setSelection({ anchor, handle });
+          const name = handle.objectName;
+          if (name?.startsWith('merge:') && activeModel?.children?.length) {
+            const slug = name.slice('merge:'.length);
+            const childId = childSlugById.get(slug);
+            if (childId) {
+              project.focusMergeChild(activeModel.id, childId);
+              return;
+            }
+          }
+          if (activeModel?.children?.length) {
+            project.focusMergeChild(activeModel.id, null);
+          }
+        }}
+        showToolbar
+      />
+      {selection && (
         <ControlsFloater
-          anchor={clickAnchor}
-          title={activeModel?.name ?? 'Model'}
+          anchor={selection.anchor}
+          title={floaterTitle}
+          objectHandle={selection.handle}
           tunables={project.tunables}
           onChange={project.setParam}
-          onClose={() => setClickAnchor(null)}
+          onClose={closeFloater}
           onAddSlider={handleAddSlider}
           addingSlider={addingSlider}
         />

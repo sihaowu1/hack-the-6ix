@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { validateSceneModule, type SceneModule } from '@motionforge/shared';
+import { validateSceneModule, type CameraSpec, type SceneModule } from '@motionforge/shared';
+import { applyTrackOverlays, type TrackOverlay } from './trackOverlay';
 
 const gltfLoader = new GLTFLoader();
 
@@ -92,10 +93,20 @@ export interface ObjectTransform {
  * position/rotation override entirely inside the runtime: it never touches
  * PARAMS, generated code, or the AI agent, and it survives `updateScene`
  * running every frame (see `SceneRuntime`'s render loop).
+ *
+ * Callers that want to persist placement (Model-page merges) can use
+ * `objectName` + `getLayoutOffsets` to write `{slug}_offset*` PARAMS.
  */
 export interface ObjectHandle {
   getTransform(): ObjectTransform;
   setTransform(transform: ObjectTransform): void;
+  /** THREE object name when set (e.g. `merge:red_robot` for a fused child). */
+  objectName?: string;
+  /**
+   * For fused child roots with a layout base: offsets relative to auto-pack
+   * placement, suitable for `{slug}_offsetX/Y/Z` and `{slug}_yaw` PARAMS.
+   */
+  getLayoutOffsets?: () => { x: number; y: number; z: number; angle: number } | null;
 }
 
 export interface SceneEntry {
@@ -111,8 +122,8 @@ interface LoadedEntry {
   objects: unknown;
 }
 
-/** Horizontal gap (world units) between co-viewed models on the shared ground plane. */
-const MERGE_SPACING = 4;
+/** Horizontal gap (world units) between co-viewed models after bbox packing. */
+const MERGE_GAP = 0.5;
 
 /**
  * Wrap a PARAMS object so undefined/NaN numeric reads fall back to 0, preventing
@@ -153,6 +164,12 @@ export class SceneRuntime {
   private frameErrorReported = false;
   /** When set, `updateScene` is driven by this instead of the free-running wall clock (see `setTime`). */
   private controlledTime: number | null = null;
+  /**
+   * Optional per-part track overlays for multi-clip timeline playback. When
+   * non-empty, `updateScene` runs at rest (`time = 0`) for PARAMS, then these
+   * overlays write joint transforms for independently scheduled part clips.
+   */
+  private trackOverlays: TrackOverlay[] = [];
   private raycaster = new THREE.Raycaster();
   private pointerDownPos: { x: number; y: number } | null = null;
   /**
@@ -181,7 +198,16 @@ export class SceneRuntime {
   private gridVisible = false;
   private fillVisible = false;
   /** Camera pose the current scene was framed with, restored by `resetCamera`. */
-  private homeCamera = { position: new THREE.Vector3(4, 2.6, 5.5), target: new THREE.Vector3(0, 0.8, 0) };
+  private homeCamera = { position: new THREE.Vector3(4, 2.6, 5.5), target: new THREE.Vector3(0, 0.8, 0), fov: 45 };
+  /**
+   * Once the user (or the first module CAMERA) has framed the viewport, later
+   * rebuilds — switching models, PARAMS edits, merges — must not yank the
+   * orbit. `homeCamera` still updates so Reset returns to the current scene's
+   * intended framing.
+   */
+  private preserveCamera = false;
+  /** Fired when the user finishes an orbit/pan/zoom gesture. */
+  onCameraChange: ((spec: CameraSpec) => void) | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -199,6 +225,7 @@ export class SceneRuntime {
     this.raf = requestAnimationFrame(this.loop);
     canvas.addEventListener('pointerdown', this.handlePointerDown);
     canvas.addEventListener('pointerup', this.handlePointerUp);
+    this.controls.addEventListener('end', this.handleControlsEnd);
   }
 
   async setCode(code: string): Promise<void> {
@@ -239,6 +266,10 @@ export class SceneRuntime {
     this.controlledTime = time;
   }
 
+  setTrackOverlays(overlays: TrackOverlay[]): void {
+    this.trackOverlays = overlays;
+  }
+
   setGridVisible(visible: boolean): void {
     this.gridVisible = visible;
     this.syncHelpers();
@@ -253,8 +284,40 @@ export class SceneRuntime {
   resetCamera(): void {
     this.camera.position.copy(this.homeCamera.position);
     this.controls.target.copy(this.homeCamera.target);
+    this.camera.fov = this.homeCamera.fov;
+    this.camera.updateProjectionMatrix();
+    this.controls.update();
+    this.onCameraChange?.(this.getCameraSpec());
+  }
+
+  /** Current orbit pose (position / lookAt / fov) for persistence and MP4 export. */
+  getCameraSpec(): CameraSpec {
+    return {
+      position: [this.camera.position.x, this.camera.position.y, this.camera.position.z],
+      lookAt: [this.controls.target.x, this.controls.target.y, this.controls.target.z],
+      fov: this.camera.fov,
+    };
+  }
+
+  /**
+   * Apply a persisted user orbit. Marks the viewport as user-framed so later
+   * module rebuilds (animation swaps, PARAMS) keep this pose instead of module CAMERA.
+   */
+  setUserCamera(spec: CameraSpec): void {
+    if (spec.position) this.camera.position.set(...spec.position);
+    if (spec.lookAt) this.controls.target.set(...spec.lookAt);
+    if (spec.fov !== undefined) {
+      this.camera.fov = spec.fov;
+      this.camera.updateProjectionMatrix();
+    }
+    this.preserveCamera = true;
     this.controls.update();
   }
+
+  private handleControlsEnd = (): void => {
+    this.preserveCamera = true;
+    this.onCameraChange?.(this.getCameraSpec());
+  };
 
   resize(width: number, height: number): void {
     if (width === 0 || height === 0) return;
@@ -267,6 +330,7 @@ export class SceneRuntime {
     cancelAnimationFrame(this.raf);
     this.canvas.removeEventListener('pointerdown', this.handlePointerDown);
     this.canvas.removeEventListener('pointerup', this.handlePointerUp);
+    this.controls.removeEventListener('end', this.handleControlsEnd);
     this.controls.dispose();
     disposeScene(this.scene);
     this.renderer.dispose();
@@ -297,25 +361,53 @@ export class SceneRuntime {
     const hits = this.raycaster.intersectObjects(this.scene.children, true);
     if (hits.length > 0) {
       const object = this.topLevelAncestor(hits[0].object);
+      const layoutBase = object.userData?.layoutBase as
+        | { x: number; y: number; z: number }
+        | undefined;
       this.onObjectClick(
         { x: clientX, y: clientY },
         {
           getTransform: () => this.getObjectTransform(object),
           setTransform: (transform) => this.setObjectTransform(object, transform),
+          objectName: object.name || undefined,
+          getLayoutOffsets: layoutBase
+            ? () => {
+                const t = this.getObjectTransform(object);
+                return {
+                  x: t.x - layoutBase.x,
+                  y: t.y - layoutBase.y,
+                  z: t.z - layoutBase.z,
+                  angle: t.angle,
+                };
+              }
+            : undefined,
         },
       );
     }
   }
 
   /**
-   * Walks up to whatever `buildScene` added directly to the scene — moving
-   * that, not a sub-mesh, is what "the clicked object" means for compound
-   * objects. Each entry's top-level objects are wrapped in a `merge:<id>`
-   * group (see `rebuild`) so the stop condition is "parent is that group",
-   * not "parent is `this.scene`" directly.
+   * Walks up to the movable unit for a click.
+   *
+   * Fused modules nest child roots (`merge:<slug>`) under the viewport wrapper
+   * (`merge:<modelId>`). Prefer that inner child group so the whole merged
+   * model moves. Otherwise stop at the first child of a `merge:*` group (or
+   * of the scene), matching the co-view packing wrapper.
    */
   private topLevelAncestor(object: THREE.Object3D): THREE.Object3D {
-    let node = object;
+    let node: THREE.Object3D | null = object;
+    while (node) {
+      if (
+        node.name.startsWith('merge:') &&
+        node.parent &&
+        node.parent.name.startsWith('merge:')
+      ) {
+        return node;
+      }
+      node = node.parent;
+    }
+
+    node = object;
     while (node.parent && node.parent !== this.scene && !node.parent.name.startsWith('merge:')) {
       node = node.parent;
     }
@@ -337,6 +429,7 @@ export class SceneRuntime {
     object.position.set(transform.x, transform.y, transform.z);
     object.rotation.set(THREE.MathUtils.degToRad(transform.pitch), THREE.MathUtils.degToRad(transform.angle), 0);
   }
+
 
   /** Handle for the "Camera" editor — mirrors `ObjectHandle` so the same `TransformControls` UI works for both. */
   getCameraHandle(): ObjectHandle {
@@ -407,35 +500,41 @@ export class SceneRuntime {
   private rebuild(loaded: Array<{ id: string; module: SceneModule }>): void {
     // Spare the reused axes helper from disposal — it's about to be re-added to the fresh scene, not thrown away.
     if (this.axesHelper) this.scene.remove(this.axesHelper);
+
+    // Keep the user's orbit across model switches / PARAMS rebuilds.
+    const keptPosition = this.camera.position.clone();
+    const keptTarget = this.controls.target.clone();
+    const keepOrbit = this.preserveCamera;
+
     disposeScene(this.scene);
     this.scene = new THREE.Scene();
     this.entries = [];
     this.grid = null;
     this.fillLights = null;
     this.transformOverrides.clear();
-    this.clearCameraOverride();
     this.syncAxesHelper();
 
     const primary = loaded[0]?.module;
-    if (primary?.CAMERA?.position) this.camera.position.set(...primary.CAMERA.position);
-    if (primary?.CAMERA?.fov) {
-      this.camera.fov = primary.CAMERA.fov;
-      this.camera.updateProjectionMatrix();
-    }
-    if (primary?.CAMERA?.lookAt) this.controls.target.set(...primary.CAMERA.lookAt);
 
-    // Pull the camera back a bit when several models share the plane.
-    if (loaded.length > 1) {
-      const span = (loaded.length - 1) * MERGE_SPACING;
-      this.camera.position.x = 0;
-      this.camera.position.z = Math.max(this.camera.position.z, 5.5 + span * 0.45);
-      this.controls.target.set(0, 0.8, 0);
+    // Guarantee a writable Color before any module updateScene runs.
+    if (!this.scene.background || typeof (this.scene.background as { set?: unknown }).set !== 'function') {
+      this.scene.background = new THREE.Color(0x0b0d12);
     }
+
+    const placed: Array<{
+      id: string;
+      module: SceneModule;
+      objects: unknown;
+      group: THREE.Group;
+      width: number;
+      minY: number;
+      centerX: number;
+    }> = [];
 
     for (let i = 0; i < loaded.length; i++) {
       const { id, module } = loaded[i];
       const before = new Set(this.scene.children);
-      const backgroundBefore = this.scene.background;
+      const backgroundBefore: THREE.Color | THREE.Texture | null = this.scene.background;
 
       try {
         const objects = module.buildScene({
@@ -447,7 +546,6 @@ export class SceneRuntime {
         const added = this.scene.children.filter((child) => !before.has(child));
         const group = new THREE.Group();
         group.name = `merge:${id}`;
-        group.position.x = (i - (loaded.length - 1) / 2) * MERGE_SPACING;
         for (const obj of added) {
           this.scene.remove(obj);
           group.add(obj);
@@ -457,16 +555,64 @@ export class SceneRuntime {
         // Keep the first module's background; later modules may overwrite it.
         if (i > 0) this.scene.background = backgroundBefore;
 
-        this.entries.push({ id, module, objects });
+        group.updateWorldMatrix(true, true);
+        const box = new THREE.Box3().setFromObject(group);
+        const width = Math.max(box.max.x - box.min.x, 0.01);
+        const centerX = (box.min.x + box.max.x) / 2;
+        const minY = Number.isFinite(box.min.y) ? box.min.y : 0;
+
+        placed.push({ id, module, objects, group, width, minY, centerX });
       } catch (err) {
         this.onError(err instanceof Error ? err : new Error(String(err)));
       }
     }
 
-    // Framing is settled by this point (module CAMERA plus the merge pull-back),
-    // so this is the pose "reset camera" should return to.
-    this.homeCamera.position.copy(this.camera.position);
-    this.homeCamera.target.copy(this.controls.target);
+    // Auto-space by bounding box on the ground plane (Y = 0), centered on X.
+    let cursor = 0;
+    const xOffsets: number[] = [];
+    for (const p of placed) {
+      xOffsets.push(cursor + p.width / 2 - p.centerX);
+      cursor += p.width + MERGE_GAP;
+    }
+    const totalSpan = placed.length > 0 ? cursor - MERGE_GAP : 0;
+    const shift = -totalSpan / 2;
+    for (let i = 0; i < placed.length; i++) {
+      const p = placed[i];
+      p.group.position.x = xOffsets[i] + shift;
+      p.group.position.y = -p.minY;
+      this.entries.push({ id: p.id, module: p.module, objects: p.objects });
+    }
+
+    // Compute the scene's intended home framing (for Reset), without necessarily
+    // applying it to the live camera.
+    if (primary?.CAMERA?.position) {
+      this.homeCamera.position.set(...primary.CAMERA.position);
+    } else {
+      this.homeCamera.position.set(4, 2.6, 5.5);
+    }
+    if (primary?.CAMERA?.lookAt) {
+      this.homeCamera.target.set(...primary.CAMERA.lookAt);
+    } else {
+      this.homeCamera.target.set(0, 0.8, 0);
+    }
+    this.homeCamera.fov = primary?.CAMERA?.fov ?? 45;
+    if (placed.length > 1) {
+      this.homeCamera.position.x = 0;
+      this.homeCamera.position.z = Math.max(this.homeCamera.position.z, 5.5 + totalSpan * 0.45);
+      this.homeCamera.target.set(0, 0.8, 0);
+    }
+
+    if (keepOrbit) {
+      this.camera.position.copy(keptPosition);
+      this.controls.target.copy(keptTarget);
+    } else {
+      this.camera.position.copy(this.homeCamera.position);
+      this.controls.target.copy(this.homeCamera.target);
+      this.camera.fov = this.homeCamera.fov;
+      this.camera.updateProjectionMatrix();
+      this.preserveCamera = true;
+    }
+    this.controls.update();
 
     this.syncHelpers();
   }
@@ -502,7 +648,17 @@ export class SceneRuntime {
   }
 
   private loop(now: number): void {
-    const time = this.controlledTime !== null ? this.controlledTime : (now - this.startMs) / 1000;
+    const useOverlays = this.trackOverlays.length > 0;
+    const time = useOverlays
+      ? 0
+      : this.controlledTime !== null
+        ? this.controlledTime
+        : (now - this.startMs) / 1000;
+    // Modules often call `scene.background.set(...)` in updateScene; a fresh
+    // THREE.Scene starts with background=null, which throws.
+    if (!this.scene.background || typeof (this.scene.background as { set?: unknown }).set !== 'function') {
+      this.scene.background = new THREE.Color(0x0b0d12);
+    }
     for (const entry of this.entries) {
       try {
         entry.module.updateScene({
@@ -512,6 +668,7 @@ export class SceneRuntime {
           params: safeguardParams(entry.module.PARAMS),
           time,
         });
+        if (useOverlays) applyTrackOverlays(entry.objects, this.trackOverlays);
       } catch (err) {
         if (!this.frameErrorReported) {
           this.frameErrorReported = true;
@@ -526,10 +683,6 @@ export class SceneRuntime {
       object.rotation.set(THREE.MathUtils.degToRad(transform.pitch), THREE.MathUtils.degToRad(transform.angle), 0);
     }
     this.controls.update();
-    // Applied after controls.update() (not folded into the transformOverrides
-    // loop above), since that call would otherwise overwrite our direct
-    // camera position/rotation write with its own target-relative one.
-    this.applyCameraOverride();
     this.renderer.render(this.scene, this.camera);
     this.raf = requestAnimationFrame(this.loop);
   }

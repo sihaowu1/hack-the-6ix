@@ -42,11 +42,17 @@ export function App() {
                 onParamChange={project.setParam}
                 mp4Job={project.mp4Job}
                 timelineClips={project.timelineClips}
+                timelineLanes={project.timelineLanes}
+                collapsedLaneIds={project.collapsedLanes}
+                onToggleLane={project.toggleLaneCollapsed}
+                timelineFocusModelId={project.timelineFocusModelId}
+                onTimelineFocusModelChange={project.setTimelineFocusModelId}
                 timelineTotal={project.timelineTotal}
                 playback={project.playback}
                 previewCode={project.previewCode}
                 previewScenes={project.previewScenes}
                 previewTime={project.previewTime}
+                previewTrackOverlays={project.previewTrackOverlays}
                 previewModelName={project.previewModelName}
                 onDropModel={project.addClipAtSecond}
                 activeModelId={project.activeModelId}
@@ -56,16 +62,20 @@ export function App() {
                 onPasteClip={project.pasteClip}
                 hasClipboardClip={project.hasClipboardClip}
                 onResizeClip={project.resizeClip}
+                onMoveClip={project.moveClip}
+                userCamera={project.userCamera}
+                onUserCameraChange={project.setUserCamera}
                 chat={
                   <ChatPanel
                     busy={project.busy}
                     status={project.status}
                     onGenerate={project.animate}
-                    onModify={project.modify}
-                    showTitle={false}
+                    title="Video chat"
+                    showModify={false}
+                    allowImageAttachment={false}
                     generateLabel="Animate"
-                    placeholder="Describe an animation — uses the selected model, or name one in the prompt…"
-                    emptyHint="Animate the active model (or name a model in your prompt). One-shot timeline — no looping filler."
+                    placeholder="Describe motion for the selected model…"
+                    emptyHint="Select a model or merge in Materials — Animate always targets that selection. Orbit the preview to frame the shot."
                   />
                 }
               />
@@ -86,12 +96,18 @@ export function App() {
                 onParamChange={project.setParam}
                 mp4Job={project.mp4Job}
                 timelineClips={project.timelineClips}
+                timelineLanes={project.timelineLanes}
+                collapsedLaneIds={project.collapsedLanes}
+                onToggleLane={project.toggleLaneCollapsed}
                 timelineTotal={project.timelineTotal}
                 playback={project.playback}
                 previewCode={project.previewCode}
                 previewScenes={project.previewScenes}
                 previewTime={project.previewTime}
+                previewTrackOverlays={project.previewTrackOverlays}
                 previewModelName={project.previewModelName}
+                userCamera={project.userCamera}
+                onUserCameraChange={project.setUserCamera}
                 onGitHubUnlink={project.resetToDefault}
                 onGitHubPull={project.replaceFromRemote}
               />

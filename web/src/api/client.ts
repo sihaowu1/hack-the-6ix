@@ -1,4 +1,15 @@
-import type { ChatIntent, GenerationResult, IntentModelContext, MarketplaceItemDetail, MarketplaceItemSummary, PublishRequest, ReferenceImage, RenderSettings, SceneSpec } from '@motionforge/shared';
+import type {
+  AspectRatio,
+  ChatIntent,
+  GenerationResult,
+  IntentModelContext,
+  MarketplaceItemDetail,
+  MarketplaceItemSummary,
+  PublishRequest,
+  ReferenceImage,
+  RenderSettings,
+  SceneSpec,
+} from '@motionforge/shared';
 
 /** Thin typed client for the Zendai server API (proxied through Vite). */
 
@@ -127,6 +138,15 @@ export const critique = (body: CritiqueRequest) =>
 
 export const animate = (prompt: string, code: string) =>
   postJson<GenerationResult>('/api/animate', { prompt, code });
+
+export const fuse = (
+  modules: Array<{ name: string; code: string }>,
+  aspectRatio?: AspectRatio,
+) =>
+  postJson<GenerationResult>('/api/fuse', {
+    modules,
+    ...(aspectRatio && { aspectRatio }),
+  });
 
 export const startMp4Export = (code: string, settings: RenderSettings) =>
   postJson<{ jobId: string }>('/api/export/mp4', { code, settings });

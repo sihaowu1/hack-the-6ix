@@ -92,9 +92,8 @@ exportRouter.post('/export/code', (req, res) => {
 exportRouter.post('/export/mp4', (req, res) => {
   const code = String(req.body?.code ?? '');
   const settings = (req.body?.settings ?? {}) as Partial<RenderSettings>;
-  const prompt = typeof req.body?.prompt === 'string' ? req.body.prompt : '';
   try {
-    const job = startMp4Export(code, settings, prompt);
+    const job = startMp4Export(code, settings);
     res.json({ jobId: job.id });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

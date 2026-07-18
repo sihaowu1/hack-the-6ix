@@ -182,7 +182,11 @@ export function updateScene(ctx) {
 
   objects.ground.material.color.set(params.groundColor);
   objects.keyLight.intensity = params.lightIntensity;
-  ctx.scene.background.set(params.background);
+  if (ctx.scene.background && typeof ctx.scene.background.set === 'function') {
+    ctx.scene.background.set(params.background);
+  } else {
+    ctx.scene.background = new ctx.THREE.Color(params.background);
+  }
 }
 `;
 }

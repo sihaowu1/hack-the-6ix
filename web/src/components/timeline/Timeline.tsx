@@ -1,18 +1,32 @@
 import { useEffect, useRef, useState } from 'react';
 import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
-import { Pause, Play, Rewind, SkipBack, SkipForward, FastForward } from '@phosphor-icons/react';
+import { CaretRight, Pause, Play, Rewind, SkipBack, SkipForward, FastForward } from '@phosphor-icons/react';
 import { PLAYBACK_RATES, type TimelinePlayback } from './useTimelinePlayback';
-import { deriveTimelineTotal, MIN_CLIP_DURATION, type TimelineClip } from './timelineMath';
+import {
+  deriveTimelineTotal,
+  MIN_CLIP_DURATION,
+  type TimelineClip,
+  type TimelineLane,
+} from './timelineMath';
 import { IconButton } from '../ui/Button';
 
-export type { TimelineClip } from './timelineMath';
-export { deriveTimelineTotal } from './timelineMath';
+export type { TimelineClip, TimelineLane } from './timelineMath';
+export { deriveTimelineTotal, partLaneId } from './timelineMath';
 
 /** Drag-and-drop MIME type used to carry a model id onto the timeline (and the video preview). */
 export const MODEL_DRAG_TYPE = 'application/x-motionforge-model-id';
 
+export interface TimelineModelOption {
+  id: string;
+  name: string;
+}
+
 export interface TimelineProps {
   clips: TimelineClip[];
+  /** Hierarchical lanes (model, or merge → children). When empty, falls back to a single track. */
+  lanes?: TimelineLane[];
+  collapsedLaneIds?: Set<string>;
+  onToggleLane?: (laneId: string) => void;
   /** Same value passed to `useTimelinePlayback` — see `deriveTimelineTotal`. */
   totalDuration?: number;
   /** Shared playhead state/controls from `useTimelinePlayback`. */
@@ -29,44 +43,48 @@ export interface TimelineProps {
   hasClipboardClip?: boolean;
   /**
    * Sets a clip's duration (drag-to-resize via the handle on its right edge).
-   * Only changes how long the clip is shown — `updateScene`'s `time` still
-   * advances at the same rate, so this never changes playback speed. A
-   * periodic animation keeps looping past its original length; a one-shot
-   * animation does whatever its own code does for large `time` values.
    */
   onResizeClip?: (clipId: string, duration: number) => void;
+  /** Moves a clip's start time (drag the clip body). */
+  onMoveClip?: (clipId: string, start: number) => void;
+  /** Models available in the timeline filter dropdown. */
+  modelOptions?: TimelineModelOption[];
+  focusModelId?: string;
+  onFocusModelChange?: (modelId: string) => void;
 }
 
 interface ContextMenuState {
   x: number;
   y: number;
-  /** The clip that was right-clicked, or undefined if the empty track was right-clicked. */
   clipId?: string;
-  /** Timeline second under the right-click, used as the paste target. */
   second: number;
 }
 
 interface ResizeState {
   clipId: string;
-  /** The clip's duration when the drag started. */
   initialDuration: number;
-  /** `clientX` when the drag started. */
   startClientX: number;
-  /** Pixels-per-second scale captured at drag start, so growing the clip
-   *  (which can grow `total` and rescale the track) doesn't feed back into
-   *  the drag itself. */
   pxPerSecond: number;
 }
 
+interface MoveState {
+  clipId: string;
+  initialStart: number;
+  startClientX: number;
+  pxPerSecond: number;
+}
+
+const LANE_HEIGHT = 28;
+
 /**
- * V1 timeline: single horizontal track with transport controls (play/pause,
- * step, skip-to-start/end) driving a playhead over it. Playback state is
- * owned by the caller (`useTimelinePlayback`) and passed in as `playback` so
- * other views — e.g. the video preview — can stay in lockstep with the same
- * playhead instead of Timeline keeping a private clock.
+ * Hierarchical multi-track timeline: one lane per model / child / part, with
+ * independently schedulable bars. Playback state is owned by the caller.
  */
 export function Timeline({
   clips,
+  lanes = [],
+  collapsedLaneIds,
+  onToggleLane,
   totalDuration,
   playback,
   onDropModel,
@@ -75,6 +93,10 @@ export function Timeline({
   onPasteClip,
   hasClipboardClip,
   onResizeClip,
+  onMoveClip,
+  modelOptions,
+  focusModelId,
+  onFocusModelChange,
 }: TimelineProps) {
   const total = deriveTimelineTotal(clips, totalDuration);
   const {
@@ -94,6 +116,11 @@ export function Timeline({
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const contextMenuEnabled = Boolean(onDeleteClip || onCopyClip || onPasteClip);
   const [resizing, setResizing] = useState<ResizeState | null>(null);
+  const [moving, setMoving] = useState<MoveState | null>(null);
+  /** Clip must be selected before it can be dragged; first click selects only. */
+  const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
+
+  const useLanes = lanes.length > 0;
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -108,6 +135,51 @@ export function Timeline({
       window.removeEventListener('keydown', closeOnEscape);
     };
   }, [contextMenu]);
+
+  // Drive move/resize from window so the gesture stays reliable after the bar moves under the cursor.
+  useEffect(() => {
+    if (!moving || !onMoveClip) return;
+    const state = moving;
+    const move = onMoveClip;
+    function onPointerMove(event: PointerEvent) {
+      const deltaSeconds = (event.clientX - state.startClientX) / state.pxPerSecond;
+      move(state.clipId, Math.max(0, state.initialStart + deltaSeconds));
+    }
+    function onPointerUp() {
+      setMoving(null);
+    }
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+    };
+  }, [moving, onMoveClip]);
+
+  useEffect(() => {
+    if (!resizing || !onResizeClip) return;
+    const state = resizing;
+    const resize = onResizeClip;
+    function onPointerMove(event: PointerEvent) {
+      const deltaSeconds = (event.clientX - state.startClientX) / state.pxPerSecond;
+      resize(state.clipId, Math.max(MIN_CLIP_DURATION, state.initialDuration + deltaSeconds));
+    }
+    function onPointerUp() {
+      setResizing(null);
+    }
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+    };
+  }, [resizing, onResizeClip]);
+
+  useEffect(() => {
+    if (selectedClipId && !clips.some((clip) => clip.id === selectedClipId)) {
+      setSelectedClipId(null);
+    }
+  }, [clips, selectedClipId]);
 
   function seekToClientX(clientX: number) {
     const el = trackRef.current;
@@ -133,11 +205,11 @@ export function Timeline({
   }
 
   function handleTrackDrop(event: ReactDragEvent<HTMLDivElement>) {
+    setIsDropTarget(false);
+    event.preventDefault();
     if (!onDropModel) return;
     const modelId = event.dataTransfer.getData(MODEL_DRAG_TYPE);
-    setIsDropTarget(false);
     if (!modelId) return;
-    event.preventDefault();
     onDropModel(modelId, timeAtClientX(event.clientX));
   }
 
@@ -151,6 +223,7 @@ export function Timeline({
     if (!contextMenuEnabled) return;
     event.preventDefault();
     event.stopPropagation();
+    setSelectedClipId(clipId);
     setContextMenu({ x: event.clientX, y: event.clientY, clipId, second: timeAtClientX(event.clientX) });
   }
 
@@ -158,23 +231,30 @@ export function Timeline({
     if (!onResizeClip) return;
     event.stopPropagation();
     event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
+    setSelectedClipId(clip.id);
     const el = trackRef.current;
     const pxPerSecond = el ? el.getBoundingClientRect().width / total : 1;
     setResizing({ clipId: clip.id, initialDuration: clip.duration, startClientX: event.clientX, pxPerSecond });
   }
 
-  function handleResizeHandlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
-    if (!resizing || !onResizeClip) return;
-    const deltaSeconds = (event.clientX - resizing.startClientX) / resizing.pxPerSecond;
-    onResizeClip(resizing.clipId, Math.max(MIN_CLIP_DURATION, resizing.initialDuration + deltaSeconds));
-  }
+  function handleClipBodyPointerDown(event: ReactPointerEvent<HTMLDivElement>, clip: TimelineClip) {
+    if (event.button !== 0) return;
+    event.stopPropagation();
+    event.preventDefault();
 
-  function handleResizeHandlePointerUp() {
-    setResizing(null);
+    const wasSelected = selectedClipId === clip.id;
+    setSelectedClipId(clip.id);
+
+    // Select-first: first click only selects; drag/move requires an already-selected clip.
+    if (!wasSelected || !onMoveClip) return;
+
+    const el = trackRef.current;
+    const pxPerSecond = el ? el.getBoundingClientRect().width / total : 1;
+    setMoving({ clipId: clip.id, initialStart: clip.start, startClientX: event.clientX, pxPerSecond });
   }
 
   function handleScrubberPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    setSelectedClipId(null);
     event.currentTarget.setPointerCapture(event.pointerId);
     seekToClientX(event.clientX);
   }
@@ -186,86 +266,216 @@ export function Timeline({
 
   const playheadPct = (currentTime / total) * 100;
 
+  const clipsByLane = (laneId: string) =>
+    clips.filter((c) => (c.laneId ?? 'default') === laneId);
+
   return (
     <div className="flex h-full w-full min-h-0 flex-col gap-1.5 p-1" aria-label="Timeline">
-      <TransportBar
-        currentTime={currentTime}
-        total={total}
-        isPlaying={isPlaying}
-        playbackRate={playbackRate}
-        onTogglePlay={togglePlay}
-        onSkipToStart={skipToStart}
-        onSkipToEnd={skipToEnd}
-        onStepBack={stepBack}
-        onStepForward={stepForward}
-        onSetPlaybackRate={setPlaybackRate}
-      />
-      <div
-        ref={trackRef}
-        className="relative flex flex-1 min-h-0 flex-col gap-1 cursor-pointer touch-none"
-        onPointerDown={handleScrubberPointerDown}
-        onPointerMove={handleScrubberPointerMove}
-        onDragOver={handleTrackDragOver}
-        onDragLeave={() => setIsDropTarget(false)}
-        onDrop={handleTrackDrop}
-        onContextMenu={handleTrackContextMenu}
-      >
-        <Ruler total={total} />
+      <div className="flex flex-shrink-0 items-center gap-2">
+        <TransportBar
+          currentTime={currentTime}
+          total={total}
+          isPlaying={isPlaying}
+          playbackRate={playbackRate}
+          onTogglePlay={togglePlay}
+          onSkipToStart={skipToStart}
+          onSkipToEnd={skipToEnd}
+          onStepBack={stepBack}
+          onStepForward={stepForward}
+          onSetPlaybackRate={setPlaybackRate}
+        />
+        {modelOptions && modelOptions.length > 0 && onFocusModelChange && (
+          <label className="ml-auto flex items-center gap-1.5 text-[12px] text-text-dim">
+            <span className="whitespace-nowrap">Model</span>
+            <select
+              className="max-w-[160px] rounded border border-border bg-bg px-1.5 py-0.5 text-[12px] text-text"
+              aria-label="Filter timeline by model"
+              value={focusModelId ?? modelOptions[0]?.id ?? ''}
+              onChange={(event) => onFocusModelChange(event.target.value)}
+            >
+              {modelOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
+      <div className="flex min-h-0 flex-1 gap-0 overflow-hidden">
+        {useLanes && (
+          <div className="flex w-[140px] flex-shrink-0 flex-col overflow-y-auto border-r border-border pt-4">
+            {lanes.map((lane) => {
+              // Children of a collapsed parent are filtered out of `lanes`, so
+              // also treat "currently collapsed" as having children — otherwise
+              // the caret vanishes and the lane can never be re-expanded.
+              const hasChildren =
+                lanes.some((l) => l.parentId === lane.id) || Boolean(collapsedLaneIds?.has(lane.id));
+              const collapsed = collapsedLaneIds?.has(lane.id);
+              return (
+                <div
+                  key={lane.id}
+                  className="flex items-center gap-1 border-b border-border/60 px-1.5 text-[11px] text-text-dim"
+                  style={{
+                    height: LANE_HEIGHT,
+                    paddingLeft: 6 + lane.depth * 10,
+                  }}
+                  title={lane.label}
+                >
+                  {hasChildren ? (
+                    <button
+                      type="button"
+                      className="flex h-4 w-4 flex-shrink-0 items-center justify-center border-none bg-transparent p-0 text-text-dim hover:text-text"
+                      onClick={() => onToggleLane?.(lane.id)}
+                      aria-label={collapsed ? 'Expand' : 'Collapse'}
+                    >
+                      <CaretRight
+                        size={10}
+                        weight="bold"
+                        className={`transition-transform ${collapsed ? '' : 'rotate-90'}`}
+                      />
+                    </button>
+                  ) : (
+                    <span className="w-4 flex-shrink-0" />
+                  )}
+                  <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+                    {lane.label}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
         <div
-          className={`relative min-h-[40px] flex-1 overflow-hidden rounded-md border border-border bg-bg-raised ${
-            isDropTarget ? 'shadow-[inset_0_0_0_2px_var(--color-accent)]' : ''
-          }`}
-          role="list"
+          ref={trackRef}
+          className="relative flex min-h-0 min-w-0 flex-1 flex-col gap-1 cursor-pointer touch-none overflow-y-auto"
+          onPointerDown={handleScrubberPointerDown}
+          onPointerMove={handleScrubberPointerMove}
+          onDragOver={handleTrackDragOver}
+          onDragLeave={() => setIsDropTarget(false)}
+          onDrop={handleTrackDrop}
+          onContextMenu={handleTrackContextMenu}
         >
-          {clips.length === 0 && (
-            <span className="absolute inset-0 flex items-center justify-center text-[14px] text-text-dim">
-              No clips yet — rendered scenes will appear here.
-            </span>
-          )}
-          {clips.map((clip) => {
-            // Position and size as percentages of the total timeline length.
-            const leftPct = (clip.start / total) * 100;
-            const widthPct = (clip.duration / total) * 100;
-            return (
-              <div
-                key={clip.id}
-                role="listitem"
-                title={`${clip.label} — ${clip.start.toFixed(2)}s → ${(
-                  clip.start + clip.duration
-                ).toFixed(2)}s`}
-                // Clips carry the scene's violet, not the blue accent — the
-                // playhead is blue and has to stay visible crossing a clip.
-                className="absolute top-1 bottom-1 flex min-w-[2px] items-center overflow-hidden rounded-[3px] px-1.5 text-xs font-semibold text-white shadow-[inset_0_0_0_1px_rgba(0,0,0,0.25)]"
-                onContextMenu={(event) => handleClipContextMenu(event, clip.id)}
-                style={{
-                  left: `${leftPct}%`,
-                  width: `${widthPct}%`,
-                  background: clip.color ?? 'var(--color-scene)',
-                }}
-              >
-                <span className="overflow-hidden text-ellipsis whitespace-nowrap">{clip.label}</span>
-                {onResizeClip && (
-                  <div
-                    className="absolute -right-0.5 top-0 bottom-0 w-2.5 cursor-ew-resize touch-none rounded-r-[3px] hover:bg-[rgba(255,255,255,0.35)]"
-                    onPointerDown={(event) => handleResizeHandlePointerDown(event, clip)}
-                    onPointerMove={handleResizeHandlePointerMove}
-                    onPointerUp={handleResizeHandlePointerUp}
-                    aria-label={`Resize ${clip.label}`}
-                    role="slider"
-                    aria-valuenow={clip.duration}
-                    aria-orientation="horizontal"
-                  />
-                )}
-              </div>
-            );
-          })}
-        </div>
-        <div
-          className="pointer-events-none absolute bottom-0 top-4 w-0 -translate-x-px border-l-2 border-accent"
-          style={{ left: `${playheadPct}%` }}
-          aria-hidden="true"
-        >
-          <div className="absolute -left-1 -top-1 h-2 w-2 rounded-full bg-accent" />
+          <Ruler total={total} />
+          <div
+            className={`relative flex flex-col overflow-hidden rounded-md border border-border bg-bg-raised ${
+              isDropTarget ? 'shadow-[inset_0_0_0_2px_var(--color-accent)]' : ''
+            }`}
+            role="list"
+            style={{ minHeight: useLanes ? lanes.length * LANE_HEIGHT : 40 }}
+          >
+            {clips.length === 0 && (
+              <span className="absolute inset-0 flex items-center justify-center text-[14px] text-text-dim">
+                No clips yet — animate a model to add bars.
+              </span>
+            )}
+            {useLanes
+              ? lanes.map((lane) => {
+                  const laneClips = lane.part !== undefined || !lanes.some((c) => c.parentId === lane.id)
+                    ? clipsByLane(lane.id)
+                    : [];
+                  return (
+                    <div
+                      key={lane.id}
+                      className="relative border-b border-border/40"
+                      style={{ height: LANE_HEIGHT }}
+                      role="presentation"
+                    >
+                      {laneClips.map((clip) => {
+                        const leftPct = (clip.start / total) * 100;
+                        const widthPct = (clip.duration / total) * 100;
+                        const isSelected = selectedClipId === clip.id;
+                        return (
+                          <div
+                            key={clip.id}
+                            role="listitem"
+                            aria-selected={isSelected}
+                            title={`${clip.label} — ${clip.start.toFixed(2)}s → ${(
+                              clip.start + clip.duration
+                            ).toFixed(2)}s`}
+                            className={`absolute top-0.5 bottom-0.5 flex min-w-[2px] items-center overflow-hidden rounded-[3px] px-1.5 text-[10px] font-semibold text-white shadow-[inset_0_0_0_1px_rgba(0,0,0,0.25)] ${
+                              isSelected
+                                ? 'z-10 ring-2 ring-white/90'
+                                : ''
+                            } ${
+                              onMoveClip && isSelected
+                                ? 'cursor-grab active:cursor-grabbing'
+                                : 'cursor-pointer'
+                            }`}
+                            onContextMenu={(event) => handleClipContextMenu(event, clip.id)}
+                            onPointerDown={(event) => handleClipBodyPointerDown(event, clip)}
+                            style={{
+                              left: `${leftPct}%`,
+                              width: `${widthPct}%`,
+                              background: clip.color ?? 'var(--color-scene)',
+                            }}
+                          >
+                            <span className="overflow-hidden text-ellipsis whitespace-nowrap">{clip.label}</span>
+                            {onResizeClip && isSelected && (
+                              <div
+                                className="absolute -right-0.5 top-0 bottom-0 w-2.5 cursor-ew-resize touch-none rounded-r-[3px] hover:bg-[rgba(255,255,255,0.35)]"
+                                onPointerDown={(event) => handleResizeHandlePointerDown(event, clip)}
+                                aria-label={`Resize ${clip.label}`}
+                                role="slider"
+                                aria-valuenow={clip.duration}
+                                aria-orientation="horizontal"
+                              />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })
+              : clips.map((clip) => {
+                  const leftPct = (clip.start / total) * 100;
+                  const widthPct = (clip.duration / total) * 100;
+                  const isSelected = selectedClipId === clip.id;
+                  return (
+                    <div
+                      key={clip.id}
+                      role="listitem"
+                      aria-selected={isSelected}
+                      title={`${clip.label} — ${clip.start.toFixed(2)}s → ${(
+                        clip.start + clip.duration
+                      ).toFixed(2)}s`}
+                      className={`absolute top-1 bottom-1 flex min-w-[2px] items-center overflow-hidden rounded-[3px] px-1.5 text-xs font-semibold text-white shadow-[inset_0_0_0_1px_rgba(0,0,0,0.25)] ${
+                        isSelected ? 'z-10 ring-2 ring-white/90' : ''
+                      } ${
+                        onMoveClip && isSelected
+                          ? 'cursor-grab active:cursor-grabbing'
+                          : 'cursor-pointer'
+                      }`}
+                      onContextMenu={(event) => handleClipContextMenu(event, clip.id)}
+                      onPointerDown={(event) => handleClipBodyPointerDown(event, clip)}
+                      style={{
+                        left: `${leftPct}%`,
+                        width: `${widthPct}%`,
+                        background: clip.color ?? 'var(--color-scene)',
+                      }}
+                    >
+                      <span className="overflow-hidden text-ellipsis whitespace-nowrap">{clip.label}</span>
+                      {onResizeClip && isSelected && (
+                        <div
+                          className="absolute -right-0.5 top-0 bottom-0 w-2.5 cursor-ew-resize touch-none rounded-r-[3px] hover:bg-[rgba(255,255,255,0.35)]"
+                          onPointerDown={(event) => handleResizeHandlePointerDown(event, clip)}
+                          aria-label={`Resize ${clip.label}`}
+                          role="slider"
+                          aria-valuenow={clip.duration}
+                          aria-orientation="horizontal"
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+            <div
+              className="pointer-events-none absolute bottom-0 top-0 w-0 -translate-x-px border-l-2 border-accent"
+              style={{ left: `${playheadPct}%` }}
+              aria-hidden="true"
+            >
+              <div className="absolute -left-1 -top-0 h-2 w-2 rounded-full bg-accent" />
+            </div>
+          </div>
         </div>
       </div>
       {contextMenu && (
@@ -291,11 +501,6 @@ interface ClipContextMenuProps {
   onClose: () => void;
 }
 
-/**
- * Right-click menu for a timeline clip (or the empty track). Delete/Copy
- * only apply when a clip was right-clicked; Paste always targets the
- * timeline second under the click and is disabled without a clipboard clip.
- */
 function ClipContextMenu({ state, hasClipboardClip, onDelete, onCopy, onPaste, onClose }: ClipContextMenuProps) {
   const { x, y, clipId, second } = state;
   const itemClass =
@@ -306,7 +511,6 @@ function ClipContextMenu({ state, hasClipboardClip, onDelete, onCopy, onPaste, o
       className="fixed z-50 min-w-[140px] rounded-md border border-border bg-bg-panel py-1 shadow-lg"
       style={{ left: x, top: y }}
       role="menu"
-      // Stop the outside-click-close listener from firing on the click that opens/selects a menu item.
       onPointerDown={(event) => event.stopPropagation()}
     >
       <button
@@ -362,7 +566,6 @@ interface TransportBarProps {
   onSetPlaybackRate: (rate: number) => void;
 }
 
-/** Play/pause + skip/step buttons, a speed selector, and the elapsed/total time readout. */
 function TransportBar({
   currentTime,
   total,
@@ -408,8 +611,6 @@ function TransportBar({
           <button
             key={rate}
             type="button"
-            // A speed toggle is a setting, not a call to action — it gets the
-            // same tint-shift treatment as any other selected item.
             className={`rounded-md border border-border px-1.5 py-0.5 text-[12px] tabular-nums cursor-pointer transition-colors ${
               rate === playbackRate
                 ? 'bg-bg-hover text-text'
@@ -426,11 +627,6 @@ function TransportBar({
   );
 }
 
-/**
- * Simple time ruler above the track. Picks a tick interval that yields a
- * readable number of labels (aim for ~6 ticks) so the ruler doesn't get
- * crowded on short timelines or sparse on long ones.
- */
 function Ruler({ total }: { total: number }) {
   const step = pickTickStep(total);
   const ticks: number[] = [];

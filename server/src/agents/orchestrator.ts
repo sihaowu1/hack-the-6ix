@@ -1,5 +1,6 @@
 import {
   parseTunables,
+  type AspectRatio,
   type ChatIntent,
   type GenerationResult,
   type IntentModelContext,
@@ -12,7 +13,8 @@ import { trace, withTrace } from '../utils/trace';
 import * as animationAgent from './animationAgent';
 import { critiqueScene, type CritiqueRequest, type CritiqueResult } from './critiqueAgent';
 import { classifyIntent } from './intentAgent';
-import * as sceneAgent from './sceneAgent';
+import * as fuseAgent from './fuseAgent';
+import * as modelAgent from './modelAgent';
 import { buildTemplateResult } from './templateFallback';
 
 /** Turn a spec's `subject` (or a raw prompt) into a short, title-cased display name. */
@@ -25,7 +27,7 @@ function toDisplayTitle(text: string): string {
 
 /**
  * The orchestrator is the single entry point the API routes call. It decides
- * whether a request is served by the AI scene agent or the offline template
+ * whether a request is served by the AI model agent or the offline template
  * generator, and always returns code plus the tunables parsed from it.
  */
 
@@ -49,11 +51,11 @@ export async function resolveIntent(
   );
 }
 
-export async function generateScene(prompt: string, image?: ReferenceImage): Promise<GenerationResult> {
-  return withTrace('generate', 'orchestrator.ts:generateScene', { prompt, hasImage: !!image }, async () => {
+export async function generateModel(prompt: string, image?: ReferenceImage): Promise<GenerationResult> {
+  return withTrace('generate', 'orchestrator.ts:generateModel', { prompt, hasImage: !!image }, async () => {
     const client = getAnthropicClient();
     if (!client) {
-      trace('orchestrator.ts:generateScene', 'path.template', {
+      trace('orchestrator.ts:generateModel', 'path.template', {
         reason: 'no API key configured',
       });
       const template = buildTemplateResult(prompt);
@@ -64,9 +66,9 @@ export async function generateScene(prompt: string, image?: ReferenceImage): Pro
         title: toDisplayTitle(prompt),
       };
     }
-    const result = await sceneAgent.generateScene(client, prompt, image);
+    const result = await modelAgent.generateModel(client, prompt, image);
     const tunables = parseTunables(result.code);
-    trace('orchestrator.ts:generateScene', 'result', {
+    trace('orchestrator.ts:generateModel', 'result', {
       codeChars: result.code.length,
       tunableNames: tunables.map((t) => t.name),
       componentIds: result.spec?.components.map((c) => c.id),
@@ -81,7 +83,7 @@ export async function generateScene(prompt: string, image?: ReferenceImage): Pro
   });
 }
 
-export async function modifyScene(
+export async function modifyModel(
   prompt: string,
   code: string,
   image?: ReferenceImage,
@@ -96,12 +98,12 @@ export async function modifyScene(
   }
   return withTrace(
     'modify',
-    'orchestrator.ts:modifyScene',
+    'orchestrator.ts:modifyModel',
     { prompt, hasImage: !!image, hasSpec: !!spec, codeChars: code.length },
     async () => {
-      const result = await sceneAgent.modifyScene(client, prompt, code, image, spec);
+      const result = await modelAgent.modifyModel(client, prompt, code, image, spec);
       const tunables = parseTunables(result.code);
-      trace('orchestrator.ts:modifyScene', 'result', {
+      trace('orchestrator.ts:modifyModel', 'result', {
         codeChars: result.code.length,
         tunableNames: tunables.map((t) => t.name),
         componentIds: result.spec?.components.map((c) => c.id),
@@ -148,7 +150,7 @@ export async function critiqueGeneratedScene(
   );
 }
 
-export async function animateScene(prompt: string, code: string): Promise<GenerationResult> {
+export async function animateModel(prompt: string, code: string): Promise<GenerationResult> {
   const client = getAnthropicClient();
   if (!client) {
     throw new Error(
@@ -156,6 +158,23 @@ export async function animateScene(prompt: string, code: string): Promise<Genera
         'You can still edit the code directly in the editor.',
     );
   }
-  const result = await animationAgent.animateScene(client, prompt, code);
+  const result = await animationAgent.animateModel(client, prompt, code);
+  return { ...result, tunables: parseTunables(result.code), source: 'model' };
+}
+
+export async function fuseModels(
+  modules: Array<{ name: string; code: string }>,
+  aspectRatio?: AspectRatio,
+): Promise<GenerationResult> {
+  const client = getAnthropicClient();
+  if (!client) {
+    throw new Error(
+      'AI fuse requires OPENROUTER_API_KEY (the offline template generator cannot fuse modules).',
+    );
+  }
+  if (modules.length < 2) {
+    throw new Error('At least two modules are required to fuse.');
+  }
+  const result = await fuseAgent.fuseModels(client, modules, aspectRatio);
   return { ...result, tunables: parseTunables(result.code), source: 'model' };
 }

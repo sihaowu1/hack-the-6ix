@@ -35,8 +35,8 @@ web (editor + controls + viewport)
    ▼
 server/routes  ─▶  server/agents (orchestrator)
    │                    │
-   │                    ├─▶ server/ai (Claude + scene-generation / img2threejs / camera-composition /
-   │                    │        threejs-animation / remotion-mp4 skills)
+   │                    ├─▶ server/ai (Claude + threejs-modelling / img2threejs /
+   │                    │        threejs-animation skills)
    │                    │        │ offline fallback ▶ server/agents/templateFallback (shared/sceneTemplate)
    │                    └─▶ server/remotion/renderer ─▶ remotion/ (bundle + render) ─▶ renders/*.mp4
    ▼
@@ -45,32 +45,36 @@ server/export (code ZIP via shared templates, MP4 job polling)
 
 - **`shared/`** — AI/browser/server-agnostic core imported by both `server` and `web` as
   `@motionforge/shared`: types (`types.ts`), PARAMS-block ↔ slider/switch/color-picker parsing
-  and patching (`tunables.ts`), scene-module validation (`validate.ts`), deterministic offline
-  scene-code templates (`sceneTemplate.ts`). The scene-module contract is defined exactly once
-  here — never duplicate it in `server` or `web`.
+  and patching (`tunables.ts`), model-module validation (`validate.ts`), deterministic offline
+  model-code templates (`sceneTemplate.ts`), animation export parsers (`animation.ts`). The
+  model-module contract is defined exactly once here — never duplicate it in `server` or `web`.
 - **`server/`** — Express API.
   - `config/` merges `config/default.config.json` with `.env` overrides.
   - `ai/` — Anthropic client, skill loader, fenced-code-block extraction from model output.
-  - `agents/` — `orchestrator.ts` (entry point for generate/modify), `sceneAgent.ts`,
-    `renderAgent.ts`, `templateFallback.ts` (offline, no API key needed).
+  - `agents/` — `orchestrator.ts` (entry point for generate/modify/animate), `modelAgent.ts`,
+    `animationAgent.ts` (single agent: adds ANIMATION to a module duplicate), `fuseAgent.ts`
+    (legacy AI fuse; client merges are deterministic co-view), `templateFallback.ts` (offline).
   - `remotion/` — bundles and renders the Remotion project to MP4.
   - `export/` — code (ZIP) and MP4 export flows; reuses `shared` templates, doesn't duplicate them.
-  - `routes/` — `/api/generate` + `/api/modify`, `/api/export/*`.
+  - `routes/` — `/api/generate`, `/api/modify`, `/api/animate`, `/api/fuse`, `/api/export/*`.
 - **`web/`** — front end: code editor + element controls only, no other UI.
   - `components/app/` — studio router shell, prompt bar, status bar.
   - `controls/` — sliders/switches/color pickers generated from a module's `PARAMS` block.
   - `viewport/` — live Three.js/WebGL preview runtime (`SceneRuntime.ts`).
-  - `state/useSceneProject.ts` — the single client-side state hook; tracks a list of models
-    (see `SPEC.md` for the v2 redesign).
+  - `state/useSceneProject.ts` — the single client-side state hook; tracks models, an
+    **animation library** per model (`animations[]`; base `code` stays frozen after modelling),
+    merges (deterministic fuse into one animatable module; `children` hold
+    independent code snapshots for hierarchy UI — not live links to sources), and a
+    hierarchical multi-track timeline (Video screen only).
   - `api/client.ts` — typed fetch client for the server API.
 - **`remotion/`** — renders a generated scene module to MP4. `generated/scene-module.js` is
   overwritten per render by the server; `GeneratedScene.tsx` drives `buildScene`/`updateScene`
   inside `<ThreeCanvas>` (`@remotion/three`).
 
-## The scene-module contract
+## The model-module contract
 
 Every generated model follows the Three.js modelling contract (see
-`skills/scene-generation/SKILL.md`):
+`skills/threejs-modelling/SKILL.md`):
 
 - **Three.js module** (`scene.module.js`): no `import`/`require`/`fetch` — the host injects
   `THREE`. Must export `PARAMS`, optional `CAMERA`, `buildScene({ THREE, scene, params })`, and
@@ -85,14 +89,15 @@ Every generated model follows the Three.js modelling contract (see
   single parser/patcher for this — controls patch the PARAMS block directly rather than
   re-serializing the whole module.
 
-Claude Skills that drive this: `skills/scene-generation/SKILL.md` (scene generation/modification),
+Claude Skills that drive this: `skills/threejs-modelling/SKILL.md` (model generation/modification),
 `skills/img2threejs/SKILL.md` (reconstructs a model from an attached reference image via component
-decomposition, used instead of `scene-generation` when an image is present),
-`skills/camera-composition/SKILL.md` (translates a prompt's implied shot type and spatial layout
-into concrete object placement and `CAMERA` position/lookAt/fov — loaded alongside
-`scene-generation`/`img2threejs` in `sceneAgent.ts`), `skills/threejs-animation/SKILL.md`
-(adds one-shot timeline animations to an existing model), and `skills/remotion-mp4/SKILL.md`
-(fps/duration/resolution planning for a render, invoked before an MP4 export).
+decomposition, used instead of `threejs-modelling` when an image is present),
+`skills/threejs-animation/SKILL.md` (one-shot timeline animations — singular video agent adds
+`ANIMATION` to a duplicate of the base model module). MP4 fps/duration/resolution come from the
+export UI (and config defaults), not an AI skill. Merges build one deterministic fused module
+(`shared/fuseModules`) on a shared ground plane — selectable and animatable like any other
+model. Child source is snapshotted into the merge (`children`); placement uses per-child
+offset PARAMS.
 
 ## Config
 

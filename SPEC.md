@@ -57,7 +57,7 @@ Current relevant files, for reference:
 - `web/src/export/ExportPanel.tsx`, `server/src/routes/export.ts` — existing
   ZIP/MP4 export, to be extended with GitHub push
 - `server/src/routes/generate.ts`, `server/src/agents/orchestrator.ts` —
-  scene generation pipeline that Screen 1's chat drives
+  model generation pipeline that Screen 1's chat drives
 - No routing library or auth is present yet (`web/src/main.tsx` mounts `App`
   directly with no router).
 
@@ -171,9 +171,8 @@ with that model's tunable controls, instead of the current always-visible
   source in `useSceneProject` (or a new cross-screen store) rather than two
   separate lists that can drift out of sync.
 - Video preview wires to the existing render pipeline
-  (`server/src/agents/renderAgent.ts`, `POST /api/export/render` per
-  `server/src/routes/export.ts`) — no new render backend needed, just a
-  player in this pane.
+  (`POST /api/export/mp4` per `server/src/routes/export.ts`) — no new render
+  backend needed, just a player in this pane.
 
 ---
 
