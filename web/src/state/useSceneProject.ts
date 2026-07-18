@@ -92,6 +92,40 @@ function nameFromPrompt(prompt: string, fallbackIndex: number): string {
   return first.length > 42 ? `${first.slice(0, 42)}…` : first;
 }
 
+/** Read `ANIMATION.duration` from a scene module when present. */
+function parseAnimationDuration(code: string): number | undefined {
+  const match = code.match(
+    /export\s+const\s+ANIMATION\s*=\s*\{[\s\S]*?\bduration\s*:\s*([0-9]*\.?[0-9]+)/,
+  );
+  if (!match) return undefined;
+  const duration = Number(match[1]);
+  return Number.isFinite(duration) && duration > 0 ? duration : undefined;
+}
+
+/**
+ * Pick which model to animate: a model whose name appears in the prompt
+ * (longest match wins), else the active/selected model. Merge rows resolve
+ * to their first child so animation targets a real scene module.
+ */
+function resolveModelForAnimation(
+  prompt: string,
+  models: SceneModel[],
+  activeModelId: string,
+): SceneModel | undefined {
+  const lower = prompt.toLowerCase();
+  const named = [...models]
+    .filter((m) => m.name.trim().length > 0)
+    .sort((a, b) => b.name.length - a.name.length)
+    .find((m) => lower.includes(m.name.toLowerCase()));
+
+  const pick = named ?? models.find((m) => m.id === activeModelId) ?? models[0];
+  if (!pick) return undefined;
+  if (pick.childIds?.length) {
+    return models.find((m) => m.id === pick.childIds![0]) ?? pick;
+  }
+  return pick;
+}
+
 export function useSceneProject() {
   // A default model is seeded so the app has valid code before the first generation.
   const [models, setModels] = useState<SceneModel[]>(() => [makeDefaultModel()]);
@@ -250,6 +284,58 @@ export function useSceneProject() {
         setStatus({ kind: 'info', text: 'Model modified by the AI agent.' });
       }),
     [run, code, blenderCode, activeModelId],
+  );
+
+  /**
+   * Video-screen Generate: run the animation skill against the model named
+   * in the prompt, or the active selection if none is named.
+   */
+  const animate = useCallback(
+    (prompt: string) =>
+      run('Animating model…', async () => {
+        const target = resolveModelForAnimation(prompt, models, activeModelId);
+        if (!target) {
+          throw new Error('No model available to animate. Generate a model on the Model screen first.');
+        }
+        const result = await api.animate(prompt, target.code, target.blenderCode);
+        setModels((current) =>
+          current.map((m) =>
+            m.id === target.id
+              ? {
+                  ...m,
+                  code: result.code,
+                  blenderCode: result.blenderCode ?? m.blenderCode,
+                }
+              : m,
+          ),
+        );
+        setActiveModelId(target.id);
+        setSelectedModelIds([target.id]);
+
+        const duration = parseAnimationDuration(result.code) ?? 3;
+        setClips((current) => {
+          const start =
+            current.length === 0
+              ? 0
+              : Math.ceil(Math.max(...current.map((c) => c.start + c.duration)));
+          return [
+            ...current,
+            {
+              id: makeId(),
+              modelId: target.id,
+              label: `${target.name} · animated`,
+              start,
+              duration,
+            },
+          ].sort((a, b) => a.start - b.start);
+        });
+
+        setStatus({
+          kind: 'info',
+          text: `Animated “${target.name}” (${duration.toFixed(duration % 1 === 0 ? 0 : 1)}s one-shot).`,
+        });
+      }),
+    [run, models, activeModelId],
   );
 
   // Slider/switch changes are code edits: patch the PARAMS literal in place.
@@ -599,6 +685,7 @@ export function useSceneProject() {
     previewModelName,
     generate,
     modify,
+    animate,
     exportCode,
     exportMp4,
     syncBlender,

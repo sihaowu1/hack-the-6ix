@@ -47,6 +47,8 @@ export function App() {
                 previewTime={project.previewTime}
                 previewModelName={project.previewModelName}
                 onDropModel={project.addClipAtSecond}
+                activeModelId={project.activeModelId}
+                onSelectModel={project.setActiveModel}
                 onDeleteClip={project.deleteClip}
                 onCopyClip={project.copyClip}
                 onPasteClip={project.pasteClip}
@@ -56,8 +58,11 @@ export function App() {
                   <ChatPanel
                     busy={project.busy}
                     status={project.status}
-                    onGenerate={project.generate}
+                    onGenerate={project.animate}
                     onModify={project.modify}
+                    generateLabel="Animate"
+                    placeholder="Describe an animation — uses the selected model, or name one in the prompt…"
+                    emptyHint="Animate the active model (or name a model in your prompt). One-shot timeline — no looping filler."
                   />
                 }
               />

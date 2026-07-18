@@ -17,17 +17,31 @@ interface Props {
   status: Status | null;
   onGenerate: (prompt: string) => void;
   onModify: (prompt: string) => void;
+  /** Primary action label (default Generate). Video screen uses Animate. */
+  generateLabel?: string;
+  modifyLabel?: string;
+  placeholder?: string;
+  emptyHint?: string;
 }
 
 /**
- * Minimal chat panel for the Video Generation screen.
+ * Minimal chat panel for Model / Video screens.
  *
  * Owns its own message list (this is a UI concern, not app state). Each user
  * message calls `onGenerate` or `onModify` from `useSceneProject`. When the
  * request completes (`busy` clears), the latest `status` is appended as an
  * assistant reply so the user sees what happened without leaving the pane.
  */
-export function ChatPanel({ busy, status, onGenerate, onModify }: Props) {
+export function ChatPanel({
+  busy,
+  status,
+  onGenerate,
+  onModify,
+  generateLabel = 'Generate',
+  modifyLabel = 'Modify',
+  placeholder = 'Ask to modify the model, or generate a new one…',
+  emptyHint = 'Ask the AI to modify the current model, or start a new one with Generate.',
+}: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   // Tracks the previous `busy` value so we only append a reply on the
@@ -66,9 +80,7 @@ export function ChatPanel({ busy, status, onGenerate, onModify }: Props) {
     <div className="flex h-full min-h-0 flex-col gap-2">
       <div ref={listRef} className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto pr-1">
         {messages.length === 0 && (
-          <div className="px-1 py-2 text-[13px] italic text-text-dim">
-            Ask the AI to modify the current model, or start a new one with Generate.
-          </div>
+          <div className="px-1 py-2 text-[13px] italic text-text-dim">{emptyHint}</div>
         )}
         {messages.map((m) => (
           <div
@@ -94,7 +106,7 @@ export function ChatPanel({ busy, status, onGenerate, onModify }: Props) {
         <textarea
           value={input}
           onChange={(event) => setInput(event.target.value)}
-          placeholder="Ask to modify the model, or generate a new one…"
+          placeholder={placeholder}
           rows={2}
           className="resize-none rounded-md border border-border bg-bg-raised p-2 font-sans text-[13px] text-text placeholder:text-text-faint focus:border-accent focus:outline-none"
           disabled={busy !== null}
@@ -108,10 +120,10 @@ export function ChatPanel({ busy, status, onGenerate, onModify }: Props) {
         />
         <div className="flex justify-end gap-1.5">
           <button type="button" className="btn btn-secondary" disabled={disabled} onClick={() => send('generate')}>
-            Generate
+            {generateLabel}
           </button>
           <button type="submit" className="btn btn-primary" disabled={disabled}>
-            Modify
+            {modifyLabel}
           </button>
         </div>
       </form>
