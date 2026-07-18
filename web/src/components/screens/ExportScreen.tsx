@@ -1,6 +1,7 @@
 import type { TunableParam } from '@motionforge/shared';
 import { RequireAuth } from '../../auth/RequireAuth';
 import { useAuth } from '../../auth/useAuth';
+import { PublishForm } from '../PublishForm';
 import type { ParamChange } from '../controls/ControlsPanel';
 import { ResizeHandle } from '../layout/ResizeHandle';
 import { useResizable } from '../layout/useResizable';
@@ -33,6 +34,10 @@ export interface ExportScreenProps {
   previewTime: number;
   /** Display name for whatever's under the playhead (from `useSceneProject.previewModelName`). */
   previewModelName: string;
+  /** The current Three.js scene code (for publishing). */
+  code?: string;
+  /** The current Blender script code (for publishing). */
+  blenderCode?: string;
 }
 
 /** Video aspect ratio (matches `config/default.config.json`'s render resolution, 1280x720). */
@@ -71,6 +76,8 @@ export function ExportScreen({
   previewCode,
   previewTime,
   previewModelName,
+  code,
+  blenderCode,
 }: ExportScreenProps) {
   const { configured, login } = useAuth();
   const leftWidth = useResizable({
@@ -143,6 +150,37 @@ export function ExportScreen({
             <button type="button" className="btn btn-primary" disabled>
               Push to GitHub
             </button>
+          </RequireAuth>
+        </section>
+        <section className="flex flex-col gap-2.5 rounded-lg border border-border bg-bg-raised p-3" aria-label="Publish to Marketplace">
+          <h2 className="m-0 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-text-dim">
+            Publish to Marketplace
+          </h2>
+          <p className="m-0 text-[13px] leading-relaxed text-text-dim">
+            Share your creation with the community. Sign-in required.
+          </p>
+          <RequireAuth
+            fallback={
+              configured ? (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => void login({ screenHint: 'login' })}
+                >
+                  Log in to publish
+                </button>
+              ) : (
+                <p className="m-0 text-[13px] leading-relaxed text-text-dim">
+                  Configure Auth0 (`VITE_AUTH0_*`) to enable publishing.
+                </p>
+              )
+            }
+          >
+            {code ? (
+              <PublishForm code={code} blenderCode={blenderCode ?? ''} />
+            ) : (
+              <p className="m-0 text-[13px] leading-relaxed text-text-dim">Generate a scene first to publish it.</p>
+            )}
           </RequireAuth>
         </section>
       </div>

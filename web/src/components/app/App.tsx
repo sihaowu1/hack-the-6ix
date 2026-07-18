@@ -7,6 +7,8 @@ import { VideoGenerationScreen } from '../screens/VideoGenerationScreen';
 import { ExportScreen } from '../screens/ExportScreen';
 import { ChatPanel } from '../ChatPanel';
 import { useAuth } from '../../auth/useAuth';
+import { MarketplaceScreen } from '../screens/MarketplaceScreen';
+import { MarketplaceDetailScreen } from '../screens/MarketplaceDetailScreen';
 
 /**
  * Studio router shell (mounted under `/*` from `main.tsx`).
@@ -66,9 +68,13 @@ export function App() {
                 previewCode={project.previewCode}
                 previewTime={project.previewTime}
                 previewModelName={project.previewModelName}
+                code={project.code}
+                blenderCode={project.blenderCode}
               />
             }
           />
+          <Route path="/marketplace" element={<MarketplaceScreen />} />
+          <Route path="/marketplace/:id" element={<MarketplaceDetailScreen />} />
           <Route path="*" element={<Navigate to="/model" replace />} />
         </Routes>
       </div>
@@ -96,8 +102,12 @@ function TopNav() {
         <NavLink to="/export" className={navLinkClassName}>
           Export
         </NavLink>
+        <NavLink to="/marketplace" className={navLinkClassName}>
+          Marketplace
+        </NavLink>
       </nav>
       <div className="flex-1" />
+
       {configured && !isLoading && (
         isAuthenticated ? (
           <div className="flex items-center gap-2.5">

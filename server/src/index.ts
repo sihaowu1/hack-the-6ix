@@ -1,8 +1,11 @@
 import { createApp } from './app';
 import { config } from './config';
+import { connectMongo } from './db/connection';
 import { log } from './utils/logger';
 
 const app = createApp();
+
+void connectMongo();
 
 const server = app.listen(config.server.port, () => {
   log('server', `Zendai server listening on http://localhost:${config.server.port}`);
