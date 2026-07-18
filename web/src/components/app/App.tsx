@@ -61,7 +61,7 @@ export function App() {
               <ExportScreen
                 code={project.code}
                 blenderCode={project.blenderCode}
-                modelName={project.models.find((m) => m.id === project.activeModelId)?.name ?? 'Scene'}
+                modelName={project.models.find((m) => m.id === project.activeModelId)?.name ?? 'Model'}
                 busy={project.busy}
                 onExportCode={project.exportCode}
                 onExportMp4={project.exportMp4}

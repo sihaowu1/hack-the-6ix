@@ -67,7 +67,7 @@ export function ChatPanel({ busy, status, onGenerate, onModify }: Props) {
       <div ref={listRef} className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto pr-1">
         {messages.length === 0 && (
           <div className="px-1 py-2 text-[13px] italic text-text-dim">
-            Ask the AI to modify the current scene, or start a new one with Generate.
+            Ask the AI to modify the current model, or start a new one with Generate.
           </div>
         )}
         {messages.map((m) => (
@@ -94,7 +94,7 @@ export function ChatPanel({ busy, status, onGenerate, onModify }: Props) {
         <textarea
           value={input}
           onChange={(event) => setInput(event.target.value)}
-          placeholder="Ask to modify the scene, or generate a new one…"
+          placeholder="Ask to modify the model, or generate a new one…"
           rows={2}
           className="resize-none rounded-md border border-border bg-bg-raised p-2 font-sans text-[13px] text-text placeholder:text-text-faint focus:border-accent focus:outline-none"
           disabled={busy !== null}
