@@ -379,6 +379,7 @@ body,
   outline: 1px solid var(--accent);
 }
 
+/* Scoped to studio shell so landing Tailwind buttons aren't overridden. */
 .app button {
   background: var(--accent);
   color: #fff;

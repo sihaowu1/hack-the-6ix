@@ -34,9 +34,8 @@ export default function Workflow() {
       if (!el) return;
       const rect = el.getBoundingClientRect();
       const viewport = window.innerHeight;
-      // progress 0 when section bottom enters, 1 when section top exits
-      const total = rect.height + viewport;
       const scrolled = viewport - rect.top;
+      const total = rect.height * 1.35;
       const p = Math.min(1, Math.max(0, scrolled / total));
       setProgress(p);
     };
@@ -46,7 +45,7 @@ export default function Workflow() {
   }, []);
 
   return (
-    <section id="workflow" ref={sectionRef} className="border-t hairline border-slate-200 bg-inkwell text-white">
+    <section id="workflow" ref={sectionRef} className="border-t hairline border-white/10 bg-inkwell text-white">
       <div className="mx-auto max-w-[1400px] px-6 lg:px-10 py-24 lg:py-32">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 mb-16">
           <div className="lg:col-span-4">

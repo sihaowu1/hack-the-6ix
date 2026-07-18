@@ -73,6 +73,7 @@ export function ExportScreen({
   previewTime,
   previewModelName,
 }: ExportScreenProps) {
+  const { configured, login } = useAuth();
   const leftWidth = useResizable({
     direction: 'horizontal',
     initial: 340,
