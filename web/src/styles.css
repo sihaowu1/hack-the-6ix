@@ -1,4 +1,15 @@
-:root {
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+}
+
+.app {
   --bg: #0b0d12;
   --bg-panel: #12151c;
   --bg-raised: #1a1e28;
@@ -9,16 +20,9 @@
   --error: #e5484d;
   --ok: #46a758;
   --warn: #f5b942;
-}
 
-* {
-  box-sizing: border-box;
-}
-
-html,
-body,
-#root {
-  margin: 0;
+  display: flex;
+  flex-direction: column;
   height: 100%;
 }
 
@@ -34,7 +38,7 @@ body,
 }
 
 /* ---- prompt bar ---- */
-.prompt-bar {
+.app .prompt-bar {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -43,7 +47,7 @@ body,
   border-bottom: 1px solid var(--border);
 }
 
-.brand {
+.app .brand {
   font-weight: 700;
   letter-spacing: 0.04em;
   margin-right: 6px;
@@ -51,19 +55,19 @@ body,
   white-space: nowrap;
 }
 
-.prompt-bar input {
+.app .prompt-bar input {
   flex: 1;
 }
 
 /* ---- layout ---- */
-.workspace {
+.app .workspace {
   display: grid;
   grid-template-columns: 300px 1fr minmax(380px, 34%);
   flex: 1;
   min-height: 0;
 }
 
-.sidebar {
+.app .sidebar {
   overflow-y: auto;
   min-height: 0;
   border-right: 1px solid var(--border);
@@ -76,20 +80,20 @@ body,
   scrollbar-width: thin;
 }
 
-.sidebar::-webkit-scrollbar {
+.app .sidebar::-webkit-scrollbar {
   width: 8px;
 }
 
-.sidebar::-webkit-scrollbar-thumb {
+.app .sidebar::-webkit-scrollbar-thumb {
   background: var(--border);
   border-radius: 4px;
 }
 
-.sidebar::-webkit-scrollbar-thumb:hover {
+.app .sidebar::-webkit-scrollbar-thumb:hover {
   background: var(--text-dim);
 }
 
-.editor-pane {
+.app .editor-pane {
   border-left: 1px solid var(--border);
   min-width: 0;
   min-height: 0;
@@ -319,7 +323,7 @@ body,
 }
 
 /* ---- panels ---- */
-.panel {
+.app .panel {
   background: var(--bg-raised);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -329,7 +333,7 @@ body,
   gap: 10px;
 }
 
-.panel h2 {
+.app .panel h2 {
   margin: 0;
   font-size: 12px;
   text-transform: uppercase;
@@ -340,27 +344,27 @@ body,
   gap: 6px;
 }
 
-.hint {
+.app .hint {
   margin: 0;
   color: var(--text-dim);
   font-size: 12px;
   line-height: 1.5;
 }
 
-.hint.error {
+.app .hint.error {
   color: var(--error);
 }
 
-.hint code {
+.app .hint code {
   background: var(--bg);
   padding: 1px 4px;
   border-radius: 3px;
 }
 
 /* ---- inputs ---- */
-input[type='text'],
-input[type='number'],
-select {
+.app input[type='text'],
+.app input[type='number'],
+.app select {
   background: var(--bg);
   color: var(--text);
   border: 1px solid var(--border);
@@ -369,13 +373,12 @@ select {
   font: inherit;
 }
 
-input[type='text']:focus,
-input[type='number']:focus,
-select:focus {
+.app input[type='text']:focus,
+.app input[type='number']:focus,
+.app select:focus {
   outline: 1px solid var(--accent);
 }
 
-/* Scoped to studio shell so landing Tailwind buttons aren't overridden. */
 .app button {
   background: var(--accent);
   color: #fff;
@@ -399,42 +402,42 @@ select:focus {
 }
 
 /* ---- controls (sliders / switches / colors) ---- */
-.control {
+.app .control {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.control-label {
+.app .control-label {
   display: flex;
   justify-content: space-between;
   font-size: 12px;
   color: var(--text-dim);
 }
 
-.control-value {
+.app .control-value {
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
 
-.control input[type='range'] {
+.app .control input[type='range'] {
   width: 100%;
   accent-color: var(--accent);
 }
 
-.control.switch {
+.app .control.switch {
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
 }
 
-.control.switch input[type='checkbox'] {
+.app .control.switch input[type='checkbox'] {
   width: 34px;
   height: 18px;
   accent-color: var(--accent);
 }
 
-.control.color input[type='color'] {
+.app .control.color input[type='color'] {
   width: 100%;
   height: 28px;
   border: 1px solid var(--border);
@@ -517,7 +520,7 @@ select:focus {
 }
 
 /* ---- viewport ---- */
-.viewport {
+.app .viewport {
   position: relative;
   width: 100%;
   height: 100%;
@@ -526,13 +529,13 @@ select:focus {
   background: #000;
 }
 
-.viewport canvas {
+.app .viewport canvas {
   display: block;
   width: 100%;
   height: 100%;
 }
 
-.viewport-error {
+.app .viewport-error {
   position: absolute;
   left: 10px;
   right: 10px;
@@ -548,20 +551,20 @@ select:focus {
 }
 
 /* ---- editor ---- */
-.editor-tabs {
+.app .editor-tabs {
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
 }
 
-.tab-strip {
+.app .tab-strip {
   display: flex;
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
 }
 
-.tab {
+.app .tab {
   background: transparent;
   color: var(--text-dim);
   border: none;
@@ -572,25 +575,25 @@ select:focus {
   font-size: 12px;
 }
 
-.tab.active {
+.app .tab.active {
   color: var(--text);
   box-shadow: inset 0 -2px 0 var(--accent);
 }
 
-.code-editor {
+.app .code-editor {
   flex: 1;
   min-height: 0;
   overflow: hidden;
 }
 
 /* ---- export ---- */
-.export-settings {
+.app .export-settings {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
   gap: 6px;
 }
 
-.export-settings label {
+.app .export-settings label {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -598,20 +601,20 @@ select:focus {
   color: var(--text-dim);
 }
 
-.progress {
+.app .progress {
   height: 6px;
   border-radius: 3px;
   background: var(--bg);
   overflow: hidden;
 }
 
-.progress-fill {
+.app .progress-fill {
   height: 100%;
   background: var(--accent);
   transition: width 0.4s ease;
 }
 
-.download-link {
+.app .download-link {
   display: inline-block;
   background: var(--ok);
   color: #fff;
@@ -623,37 +626,37 @@ select:focus {
 }
 
 /* ---- blender ---- */
-.dot {
+.app .dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   display: inline-block;
 }
 
-.dot.connected {
+.app .dot.connected {
   background: var(--ok);
 }
 
-.dot.waiting {
+.app .dot.waiting {
   background: var(--warn);
 }
 
-.dot.off {
+.app .dot.off {
   background: var(--text-dim);
 }
 
-.agent-row {
+.app .agent-row {
   display: flex;
   gap: 6px;
 }
 
-.agent-row input {
+.app .agent-row input {
   flex: 1;
   min-width: 0;
 }
 
 /* ---- status bar ---- */
-.status-bar {
+.app .status-bar {
   padding: 6px 14px;
   font-size: 12px;
   color: var(--text-dim);
@@ -662,15 +665,15 @@ select:focus {
   flex-shrink: 0;
 }
 
-.status-bar.busy {
+.app .status-bar.busy {
   color: var(--warn);
 }
 
-.status-bar.error {
+.app .status-bar.error {
   color: var(--error);
 }
 
-.status-bar.info {
+.app .status-bar.info {
   color: var(--ok);
 }
 

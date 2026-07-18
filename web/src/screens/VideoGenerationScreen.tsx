@@ -1,27 +1,45 @@
+import { useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import type { TunableParam } from '@motionforge/shared';
 import type { ParamChange } from '../controls/ControlsPanel';
 import { ResizeHandle } from '../layout/ResizeHandle';
 import { useResizable } from '../layout/useResizable';
-import { Timeline } from '../timeline/Timeline';
-import type { Clip, Mp4JobState, SceneModel } from '../state/useSceneProject';
+import { MODEL_DRAG_TYPE, Timeline } from '../timeline/Timeline';
+import type { TimelineClip } from '../timeline/timelineMath';
+import type { TimelinePlayback } from '../timeline/useTimelinePlayback';
+import type { Mp4JobState, SceneModel } from '../state/useSceneProject';
 import { VideoPreview } from '../video/VideoPreview';
 
 export interface VideoGenerationScreenProps {
   /** Models generated on the Model Generation screen (from `useSceneProject.models`). */
   models: SceneModel[];
-  /** The active model's id (from `useSceneProject.activeModelId`). */
-  activeModelId: string;
-  /** The active model's scene code (from `useSceneProject.code`), live-previewed until a render exists. */
-  code: string;
   /** The active model's tunables (from `useSceneProject.tunables`), edited via the click floater. */
   tunables: TunableParam[];
   /** Patches a tunable on the active model (from `useSceneProject.setParam`). */
   onParamChange: ParamChange;
   /** Current MP4 render job from `useSceneProject.mp4Job`. */
   mp4Job: Mp4JobState | null;
-  /** Timeline clips (from `useSceneProject.clips`), rendered in the bottom row. */
-  clips: Clip[];
+  /** Timeline clips (from `useSceneProject.timelineClips`), rendered in the bottom row. */
+  timelineClips: TimelineClip[];
+  /** Timeline length in seconds (from `useSceneProject.timelineTotal`). */
+  timelineTotal: number;
+  /**
+   * Shared playhead (from `useSceneProject.playback`) — the same clock the
+   * Export screen's timeline reads, so scrubbing/playing stays in sync
+   * across screens instead of each screen keeping its own clock.
+   */
+  playback: TimelinePlayback;
+  /** Scene code for whatever's under the playhead (from `useSceneProject.previewCode`); undefined shows a black screen. */
+  previewCode: string | undefined;
+  /** Playhead position local to the active clip (from `useSceneProject.previewTime`). */
+  previewTime: number;
+  /** Display name for whatever's under the playhead (from `useSceneProject.previewModelName`). */
+  previewModelName: string;
+  /**
+   * Drops a material onto the video preview: places a 1-second clip for
+   * `modelId` at whole-second `second` (from `useSceneProject.addClipAtSecond`).
+   */
+  onDropModel: (modelId: string, second: number) => void;
   /** Optional slot for the chat pane (component not built yet — see SPEC.md Issue 4). */
   chat?: ReactNode;
 }
@@ -39,15 +57,19 @@ export interface VideoGenerationScreenProps {
  */
 export function VideoGenerationScreen({
   models,
-  activeModelId,
-  code,
   tunables,
   onParamChange,
   mp4Job,
-  clips,
+  timelineClips,
+  timelineTotal,
+  playback,
+  previewCode,
+  previewTime,
+  previewModelName,
+  onDropModel,
   chat,
 }: VideoGenerationScreenProps) {
-  const activeModel = models.find((m) => m.id === activeModelId);
+  const [isDropTarget, setIsDropTarget] = useState(false);
 
   const chatWidth = useResizable({
     direction: 'horizontal',
@@ -97,25 +119,47 @@ export function VideoGenerationScreen({
           label="Resize materials panel"
         />
         <Pane title="Resulting Video" area="video" bodyStyle={styles.videoPaneBody}>
-          <VideoPreview
-            job={mp4Job}
-            code={code}
-            tunables={tunables}
-            onParamChange={onParamChange}
-            modelName={activeModel?.name ?? 'Model'}
-          />
+          <div
+            style={isDropTarget ? { ...styles.videoDropZone, ...styles.videoDropZoneActive } : styles.videoDropZone}
+            onDragOver={(event) => {
+              if (!event.dataTransfer.types.includes(MODEL_DRAG_TYPE)) return;
+              event.preventDefault();
+              event.dataTransfer.dropEffect = 'copy';
+              setIsDropTarget(true);
+            }}
+            onDragLeave={() => setIsDropTarget(false)}
+            onDrop={(event) => {
+              const modelId = event.dataTransfer.getData(MODEL_DRAG_TYPE);
+              setIsDropTarget(false);
+              if (!modelId) return;
+              event.preventDefault();
+              onDropModel(modelId, playback.currentTime);
+            }}
+          >
+            <VideoPreview
+              job={mp4Job}
+              code={previewCode}
+              tunables={tunables}
+              onParamChange={onParamChange}
+              modelName={previewModelName}
+              time={previewTime}
+            />
+            {isDropTarget && (
+              <div style={styles.dropHint} aria-hidden="true">
+                Drop to place at {formatDropSecond(playback.currentTime)}s
+              </div>
+            )}
+          </div>
         </Pane>
       </div>
       <ResizeHandle direction="vertical" onPointerDown={timelineHeight.startDragging} label="Resize timeline" />
       <div className="video-screen__timeline" style={styles.timeline}>
         <Pane title="Timeline" area="timeline">
           <Timeline
-            clips={clips.map((c) => ({
-              id: c.id,
-              label: c.label,
-              start: c.start,
-              duration: c.duration,
-            }))}
+            clips={timelineClips}
+            totalDuration={timelineTotal}
+            playback={playback}
+            onDropModel={onDropModel}
           />
         </Pane>
       </div>
@@ -123,9 +167,15 @@ export function VideoGenerationScreen({
   );
 }
 
+function formatDropSecond(time: number): number {
+  return Math.max(0, Math.floor(time));
+}
+
 /**
  * Read-only list of models generated on the Model Generation screen.
- * Purely a view over the `models` prop — no local state, no fetching.
+ * Purely a view over the `models` prop — no local state, no fetching. Each
+ * item is draggable so it can be dropped onto the video preview to place it
+ * on the timeline (see `MODEL_DRAG_TYPE`).
  */
 function MaterialsList({ models }: { models: SceneModel[] }) {
   if (models.length === 0) {
@@ -139,7 +189,15 @@ function MaterialsList({ models }: { models: SceneModel[] }) {
   return (
     <ul style={styles.materialsList}>
       {models.map((m) => (
-        <li key={m.id} style={styles.materialItem}>
+        <li
+          key={m.id}
+          style={styles.materialItem}
+          draggable
+          onDragStart={(event) => {
+            event.dataTransfer.setData(MODEL_DRAG_TYPE, m.id);
+            event.dataTransfer.effectAllowed = 'copy';
+          }}
+        >
           <div style={styles.materialThumbFallback} aria-hidden="true" />
           <span style={styles.materialName} title={m.name}>
             {m.name}
@@ -233,6 +291,28 @@ const styles = {
     overflow: 'hidden',
     padding: 0,
   },
+  videoDropZone: {
+    position: 'relative',
+    width: '100%',
+    height: '100%',
+    boxShadow: 'inset 0 0 0 0 var(--accent)',
+    transition: 'box-shadow 100ms ease-out',
+  },
+  videoDropZoneActive: {
+    boxShadow: 'inset 0 0 0 2px var(--accent)',
+  },
+  dropHint: {
+    position: 'absolute',
+    inset: 0,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: 13,
+    fontWeight: 600,
+    color: 'var(--text)',
+    background: 'rgba(18, 21, 28, 0.6)',
+    pointerEvents: 'none',
+  },
   placeholder: {
     height: '100%',
     display: 'flex',
@@ -270,6 +350,7 @@ const styles = {
     background: 'var(--bg-raised)',
     border: '1px solid var(--border)',
     borderRadius: 4,
+    cursor: 'grab',
   },
   materialThumbFallback: {
     width: 32,
