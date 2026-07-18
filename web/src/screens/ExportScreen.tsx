@@ -1,5 +1,7 @@
 import type { CSSProperties } from 'react';
 import type { TunableParam } from '@motionforge/shared';
+import { RequireAuth } from '../auth/RequireAuth';
+import { useAuth } from '../auth/useAuth';
 import type { ParamChange } from '../controls/ControlsPanel';
 import { ResizeHandle } from '../layout/ResizeHandle';
 import { useResizable } from '../layout/useResizable';
@@ -71,6 +73,7 @@ export function ExportScreen({
   previewTime,
   previewModelName,
 }: ExportScreenProps) {
+  const { configured, login } = useAuth();
   const leftWidth = useResizable({
     direction: 'horizontal',
     initial: 340,
@@ -102,11 +105,26 @@ export function ExportScreen({
         </section>
         <section className="panel" aria-label="Export to GitHub">
           <h2>Export to GitHub</h2>
-          <p className="hint">Push the generated project straight to a GitHub repository.</p>
-          <input type="text" placeholder="owner/repo" disabled />
-          <button type="button" disabled>
-            Push to GitHub
-          </button>
+          <p className="hint">
+            Push the generated project straight to a GitHub repository. Sign-in
+            is optional for everything else — only needed here.
+          </p>
+          <RequireAuth
+            fallback={
+              configured ? (
+                <button type="button" onClick={() => void login({ screenHint: 'login' })}>
+                  Log in to push to GitHub
+                </button>
+              ) : (
+                <p className="hint">Configure Auth0 (`VITE_AUTH0_*`) to enable GitHub sign-in.</p>
+              )
+            }
+          >
+            <input type="text" placeholder="owner/repo" disabled />
+            <button type="button" disabled>
+              Push to GitHub
+            </button>
+          </RequireAuth>
         </section>
       </div>
       <ResizeHandle direction="horizontal" onPointerDown={leftWidth.startDragging} label="Resize export options" />

@@ -6,17 +6,17 @@ import { ModelGenerationScreen } from '../screens/ModelGenerationScreen';
 import { VideoGenerationScreen } from '../screens/VideoGenerationScreen';
 import { ExportScreen } from '../screens/ExportScreen';
 import { ChatPanel } from '../chat/ChatPanel';
+import { useAuth } from '../auth/useAuth';
 
 /**
- * Router shell.
+ * Studio router shell (mounted under `/*` from `main.tsx`).
  *
- * `useSceneProject` lives here so both screens share one state instance —
- * per SPEC.md Issue 4, Materials/Video panes must read the same data source
- * as the Model screen's list, or the two screens will drift out of sync.
+ * The marketing landing lives at `/` (`web/src/landing/Home.jsx`). This shell owns
+ * `/model`, `/video`, and `/export`. `useSceneProject` lives here so both
+ * screens share one state instance — per SPEC.md Issue 4.
  *
- * Each screen owns its own chat (`ChatPanel`, with scrollback) rather than a
- * single global prompt bar, so there's no top-level `PromptBar` mounted here
- * anymore — see `PromptBar.tsx`'s doc comment.
+ * Auth is optional: studio routes stay public. Sign-in unlocks GitHub-linked
+ * features; logout returns to the public landing page.
  */
 export function App() {
   const project = useSceneProject();
@@ -26,7 +26,6 @@ export function App() {
       <TopNav />
       <div style={styles.outlet}>
         <Routes>
-          <Route path="/" element={<Navigate to="/model" replace />} />
           <Route path="/model" element={<ModelGenerationScreen project={project} />} />
           <Route
             path="/video"
@@ -79,8 +78,13 @@ export function App() {
 }
 
 function TopNav() {
+  const { configured, isAuthenticated, isLoading, login, logout, user } = useAuth();
+
   return (
     <nav style={styles.nav} aria-label="Screens">
+      <NavLink to="/" style={navLinkStyle} end>
+        Home
+      </NavLink>
       <NavLink to="/model" style={navLinkStyle}>
         Model
       </NavLink>
@@ -90,6 +94,23 @@ function TopNav() {
       <NavLink to="/export" style={navLinkStyle}>
         Export
       </NavLink>
+
+      <div style={styles.navSpacer} />
+
+      {configured && !isLoading && (
+        isAuthenticated ? (
+          <>
+            {user?.name && <span style={styles.navUser}>{user.name}</span>}
+            <button type="button" style={styles.navBtn} onClick={logout}>
+              Log out
+            </button>
+          </>
+        ) : (
+          <button type="button" style={styles.navBtn} onClick={() => void login({ screenHint: 'login' })}>
+            Log in
+          </button>
+        )
+      )}
     </nav>
   );
 }
@@ -111,10 +132,29 @@ const styles = {
   nav: {
     display: 'flex',
     gap: 6,
+    alignItems: 'center',
     padding: '6px 14px',
     background: 'var(--bg-panel)',
     borderBottom: '1px solid var(--border)',
     flexShrink: 0,
+  },
+  navSpacer: {
+    flex: 1,
+  },
+  navUser: {
+    fontSize: 12,
+    color: 'var(--text-dim)',
+    marginRight: 4,
+  },
+  navBtn: {
+    padding: '6px 12px',
+    borderRadius: 4,
+    fontSize: 13,
+    fontWeight: 600,
+    cursor: 'pointer',
+    color: 'var(--text)',
+    background: 'var(--bg-raised)',
+    border: '1px solid var(--border)',
   },
   outlet: {
     flex: 1,

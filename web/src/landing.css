@@ -1,5 +1,4 @@
 @import "tailwindcss";
-@source "../../src";
 
 @theme {
   --color-inkwell: #0A0F1E;

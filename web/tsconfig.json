@@ -9,11 +9,7 @@
     "noEmit": true,
     "skipLibCheck": true,
     "isolatedModules": true,
-    "allowJs": true,
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["../src/*"]
-    }
+    "allowJs": true
   },
-  "include": ["src", "../src"]
+  "include": ["src"]
 }

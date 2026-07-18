@@ -24,6 +24,13 @@ body,
   display: flex;
   flex-direction: column;
   height: 100%;
+}
+
+/* Studio chrome only — keep the marketing landing page's light theme intact. */
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
   background: var(--bg);
   color: var(--text);
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
@@ -372,6 +379,7 @@ body,
   outline: 1px solid var(--accent);
 }
 
+/* Scoped to studio shell so landing Tailwind buttons aren't overridden. */
 .app button {
   background: var(--accent);
   color: #fff;
@@ -669,3 +677,4 @@ body,
 .app .status-bar.info {
   color: var(--ok);
 }
+
