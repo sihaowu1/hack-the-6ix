@@ -7,6 +7,11 @@
 export interface FuseModuleInput {
   name: string;
   code: string;
+  /** Optional initial placement overrides (defaults stay 0). */
+  offsetX?: number;
+  offsetY?: number;
+  offsetZ?: number;
+  yaw?: number;
 }
 
 /** Stable short slug for namespacing (e.g. "Red Robot" → "red_robot"). */
@@ -18,6 +23,18 @@ export function fuseSlug(name: string, index: number): string {
     .replace(/^_+|_+$/g, '')
     .slice(0, 24);
   return base || `model_${index + 1}`;
+}
+
+/** Unique slugs for a list of names (matches fuseSceneModules naming). */
+export function fuseSlugs(names: string[]): string[] {
+  const entries = names.map((name, i) => ({ slug: fuseSlug(name, i) }));
+  const seen = new Map<string, number>();
+  for (const entry of entries) {
+    const count = seen.get(entry.slug) ?? 0;
+    seen.set(entry.slug, count + 1);
+    if (count > 0) entry.slug = `${entry.slug}_${count + 1}`;
+  }
+  return entries.map((e) => e.slug);
 }
 
 function extractBalancedObject(code: string, exportName: string): string | null {
@@ -48,6 +65,10 @@ function serializeParamValue(value: unknown): string {
   return '0';
 }
 
+function numOr(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
 /**
  * Build one scene module that embeds and co-places the given children.
  * Returns validated-shaped source (PARAMS + buildScene + updateScene).
@@ -66,7 +87,16 @@ export function fuseSceneModules(modules: FuseModuleInput[]): string {
     } catch {
       params = {};
     }
-    return { slug, name: m.name, code: m.code, params };
+    return {
+      slug,
+      name: m.name,
+      code: m.code,
+      params,
+      offsetX: numOr(m.offsetX, 0),
+      offsetY: numOr(m.offsetY, 0),
+      offsetZ: numOr(m.offsetZ, 0),
+      yaw: numOr(m.yaw, 0),
+    };
   });
 
   // Ensure unique slugs.
@@ -87,6 +117,15 @@ export function fuseSceneModules(modules: FuseModuleInput[]): string {
   ];
 
   for (const entry of entries) {
+    paramLines.push(`  /** @tunable @min -12 @max 12 @step 0.05 @label ${entry.name} offset X */`);
+    paramLines.push(`  ${entry.slug}_offsetX: ${serializeParamValue(entry.offsetX)},`);
+    paramLines.push(`  /** @tunable @min -6 @max 6 @step 0.05 @label ${entry.name} offset Y */`);
+    paramLines.push(`  ${entry.slug}_offsetY: ${serializeParamValue(entry.offsetY)},`);
+    paramLines.push(`  /** @tunable @min -12 @max 12 @step 0.05 @label ${entry.name} offset Z */`);
+    paramLines.push(`  ${entry.slug}_offsetZ: ${serializeParamValue(entry.offsetZ)},`);
+    paramLines.push(`  /** @tunable @min -180 @max 180 @step 1 @label ${entry.name} yaw */`);
+    paramLines.push(`  ${entry.slug}_yaw: ${serializeParamValue(entry.yaw)},`);
+
     for (const [key, value] of Object.entries(entry.params)) {
       const pref = `${entry.slug}_${key}`;
       if (typeof value === 'boolean') {
@@ -150,9 +189,22 @@ function __childParams(slug, params) {
   const out = {};
   const prefix = slug + '_';
   for (const key of Object.keys(params)) {
-    if (key.startsWith(prefix)) out[key.slice(prefix.length)] = params[key];
+    if (key.startsWith(prefix)) {
+      const rest = key.slice(prefix.length);
+      if (rest === 'offsetX' || rest === 'offsetY' || rest === 'offsetZ' || rest === 'yaw') continue;
+      out[rest] = params[key];
+    }
   }
   return out;
+}
+
+function __applyChildPlacement(group, slug, params, layoutBase) {
+  const ox = typeof params[slug + '_offsetX'] === 'number' ? params[slug + '_offsetX'] : 0;
+  const oy = typeof params[slug + '_offsetY'] === 'number' ? params[slug + '_offsetY'] : 0;
+  const oz = typeof params[slug + '_offsetZ'] === 'number' ? params[slug + '_offsetZ'] : 0;
+  const yaw = typeof params[slug + '_yaw'] === 'number' ? params[slug + '_yaw'] : 0;
+  group.position.set(layoutBase.x + ox, layoutBase.y + oy, layoutBase.z + oz);
+  group.rotation.set(0, (yaw * Math.PI) / 180, 0);
 }
 
 export function buildScene({ THREE, scene, params }) {
@@ -205,8 +257,13 @@ export function buildScene({ THREE, scene, params }) {
   const totalSpan = cursor - gap;
   const shift = -totalSpan / 2;
   for (let i = 0; i < groups.length; i++) {
-    groups[i].group.position.x = xOffsets[i] + shift;
-    groups[i].group.position.y = -widths[i].minY;
+    const layoutBase = {
+      x: xOffsets[i] + shift,
+      y: -widths[i].minY,
+      z: 0,
+    };
+    groups[i].group.userData.layoutBase = layoutBase;
+    __applyChildPlacement(groups[i].group, groups[i].slug, params, layoutBase);
     objects[groups[i].slug + '_root'] = groups[i].group;
     const map = groups[i].map && typeof groups[i].map === 'object' ? groups[i].map : {};
     for (const [key, value] of Object.entries(map)) {
@@ -234,6 +291,10 @@ export function updateScene({ THREE, scene, objects, params, time }) {
       params: childParams,
       time: time || 0,
     });
+    const layoutBase = entry.group && entry.group.userData && entry.group.userData.layoutBase;
+    if (entry.group && layoutBase) {
+      __applyChildPlacement(entry.group, entry.slug, params, layoutBase);
+    }
   }
 }
 `;

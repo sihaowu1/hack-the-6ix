@@ -5,6 +5,7 @@ import {
   DEFAULT_SCENE_CODE,
   deleteLayer as deleteLayerInCode,
   fuseSceneModules,
+  fuseSlugs,
   parseAnimationDuration,
   parseAnimationName,
   parseAnimationPartNames,
@@ -13,8 +14,10 @@ import {
   patchParam,
   renameLayer as renameLayerInCode,
   type AspectRatio,
+  type FuseModuleInput,
   type ReferenceImage,
   type RenderSettings,
+  type TunableParam,
 } from '@motionforge/shared';
 import * as api from '../api/client';
 import {
@@ -31,7 +34,8 @@ import type { TrackOverlay } from '../viewport/trackOverlay';
  *
  * Each model may hold one animation duplicate (`animation`) so motion never
  * mutates the frozen base `code`. Merges are real fused modules (`code` is one
- * scene on a shared plane); `childIds` remain for hierarchy UI.
+ * scene on a shared plane); `children` hold independent code snapshots for
+ * hierarchy UI and re-fuse — not live links to the source models.
  */
 
 export interface Status {
@@ -58,6 +62,13 @@ export interface AnimationInstance {
   createdAt: number;
 }
 
+/** Independent snapshot of a model embedded in a merge (not a live link). */
+export interface MergeChild {
+  id: string;
+  name: string;
+  code: string;
+}
+
 /** A single generated model: source of truth for both editors, viewport, and Materials pane. */
 export interface SceneModel {
   id: string;
@@ -66,9 +77,10 @@ export interface SceneModel {
   createdAt: number;
   /**
    * When set, this row is a merge of other models. `code` is the real fused
-   * module (animatable); `childIds` are kept for hierarchy UI.
+   * module (animatable); `children` are independent copies for hierarchy UI
+   * and for re-fusing after component edits.
    */
-  childIds?: string[];
+  children?: MergeChild[];
   /**
    * The one animated duplicate for this model. Regenerating replaces it;
    * the base `code` stays frozen.
@@ -125,11 +137,60 @@ function clipsOverlap(aStart: number, aDur: number, bStart: number, bDur: number
   return aStart < bStart + bDur && aStart + aDur > bStart;
 }
 
+/** Read per-child placement overrides from an existing fused module. */
+function readChildPlacement(
+  fusedCode: string,
+  slug: string,
+): Pick<FuseModuleInput, 'offsetX' | 'offsetY' | 'offsetZ' | 'yaw'> {
+  const out: Pick<FuseModuleInput, 'offsetX' | 'offsetY' | 'offsetZ' | 'yaw'> = {};
+  try {
+    for (const t of parseTunables(fusedCode)) {
+      if (t.type !== 'number' || typeof t.value !== 'number') continue;
+      if (t.name === `${slug}_offsetX`) out.offsetX = t.value;
+      else if (t.name === `${slug}_offsetY`) out.offsetY = t.value;
+      else if (t.name === `${slug}_offsetZ`) out.offsetZ = t.value;
+      else if (t.name === `${slug}_yaw`) out.yaw = t.value;
+    }
+  } catch {
+    // ignore parse failures — re-fuse with defaults
+  }
+  return out;
+}
+
+/** Rebuild fused `code` from child snapshots, preserving placement PARAMS. */
+function refuseFromChildren(children: MergeChild[], previousCode?: string): string {
+  const slugs = fuseSlugs(children.map((c) => c.name));
+  const inputs: FuseModuleInput[] = children.map((child, i) => {
+    const placement = previousCode ? readChildPlacement(previousCode, slugs[i]) : {};
+    return { name: child.name, code: child.code, ...placement };
+  });
+  return fuseSceneModules(inputs);
+}
+
+/** Flatten selected models into leaf MergeChild snapshots (copies). */
+function snapshotLeavesForMerge(models: SceneModel[], selectedIds: string[]): MergeChild[] {
+  const leaves: MergeChild[] = [];
+  for (const id of selectedIds) {
+    const model = models.find((m) => m.id === id);
+    if (!model) continue;
+    if (model.children?.length) {
+      for (const child of model.children) {
+        leaves.push({ id: makeId(), name: child.name, code: child.code });
+      }
+    } else {
+      leaves.push({ id: makeId(), name: model.name, code: model.code });
+    }
+  }
+  return leaves;
+}
+
 export function useSceneProject() {
   const [models, setModels] = useState<SceneModel[]>(() => [makeDefaultModel()]);
   const [activeModelId, setActiveModelId] = useState<string>(DEFAULT_MODEL_ID);
   const [selectedModelIds, setSelectedModelIds] = useState<string[]>([DEFAULT_MODEL_ID]);
   const [selectedLayer, setSelectedLayer] = useState<string | null>(null);
+  /** When a merge is active, which embedded child copy is focused for editing. */
+  const [focusedChildId, setFocusedChildId] = useState<string | null>(null);
   const [clips, setClips] = useState<Clip[]>([]);
   const [clipboardClip, setClipboardClip] = useState<Clip | null>(null);
   const [collapsedLanes, setCollapsedLanes] = useState<Set<string>>(() => new Set());
@@ -159,6 +220,22 @@ export function useSceneProject() {
       return [];
     }
   }, [code]);
+
+  /** When a merge child is focused, only show that child's namespaced PARAMS (+ placement). */
+  const focusedTunables = useMemo((): TunableParam[] => {
+    const children = activeModel.children;
+    if (!focusedChildId || !children?.length) return tunables;
+    const index = children.findIndex((c) => c.id === focusedChildId);
+    if (index < 0) return tunables;
+    const slug = fuseSlugs(children.map((c) => c.name))[index];
+    const prefix = `${slug}_`;
+    return tunables.filter((t) => t.name.startsWith(prefix));
+  }, [tunables, activeModel.children, focusedChildId]);
+
+  const focusedChild = useMemo(() => {
+    if (!focusedChildId || !activeModel.children) return null;
+    return activeModel.children.find((c) => c.id === focusedChildId) ?? null;
+  }, [activeModel.children, focusedChildId]);
 
   const timelineLanes = useMemo(
     () => buildTimelineLanes(models, clips),
@@ -441,6 +518,7 @@ export function useSceneProject() {
     setActiveModelId(id);
     setSelectedModelIds([id]);
     setSelectedLayer(null);
+    setFocusedChildId(null);
     setTimelineFocusModelId(id);
   }, []);
 
@@ -455,12 +533,14 @@ export function useSceneProject() {
       });
       setActiveModelId(id);
       setSelectedLayer(null);
+      setFocusedChildId(null);
       setTimelineFocusModelId(id);
       return;
     }
     setActiveModelId(id);
     setSelectedModelIds([id]);
     setSelectedLayer(null);
+    setFocusedChildId(null);
     setTimelineFocusModelId(id);
   }, []);
 
@@ -468,7 +548,16 @@ export function useSceneProject() {
     setActiveModelId(modelId);
     setSelectedModelIds([modelId]);
     setSelectedLayer(layerName);
+    setFocusedChildId(null);
     setTimelineFocusModelId(modelId);
+  }, []);
+
+  const focusMergeChild = useCallback((mergeId: string, childId: string | null) => {
+    setActiveModelId(mergeId);
+    setSelectedModelIds([mergeId]);
+    setTimelineFocusModelId(mergeId);
+    setSelectedLayer(null);
+    setFocusedChildId(childId);
   }, []);
 
   const renameModel = useCallback((modelId: string, newName: string) => {
@@ -511,6 +600,57 @@ export function useSceneProject() {
     setSelectedLayer((current) => (current === layerName ? null : current));
   }, []);
 
+  /** Rename a layer inside an embedded merge child, then re-fuse. */
+  const renameMergeChildLayer = useCallback(
+    (mergeId: string, childId: string, oldName: string, newName: string) => {
+      const trimmed = newName.trim();
+      if (!trimmed || trimmed === oldName) return;
+      setModels((current) =>
+        current.map((m) => {
+          if (m.id !== mergeId || !m.children?.length) return m;
+          let changed = false;
+          const nextChildren = m.children.map((child) => {
+            if (child.id !== childId) return child;
+            const nextCode = renameLayerInCode(child.code, oldName, trimmed);
+            if (nextCode === child.code) return child;
+            changed = true;
+            return { ...child, code: nextCode };
+          });
+          if (!changed) return m;
+          return {
+            ...m,
+            children: nextChildren,
+            code: refuseFromChildren(nextChildren, m.code),
+          };
+        }),
+      );
+    },
+    [],
+  );
+
+  /** Delete a layer inside an embedded merge child, then re-fuse. */
+  const deleteMergeChildLayer = useCallback((mergeId: string, childId: string, layerName: string) => {
+    setModels((current) =>
+      current.map((m) => {
+        if (m.id !== mergeId || !m.children?.length) return m;
+        let changed = false;
+        const nextChildren = m.children.map((child) => {
+          if (child.id !== childId) return child;
+          const nextCode = deleteLayerInCode(child.code, layerName);
+          if (nextCode === child.code) return child;
+          changed = true;
+          return { ...child, code: nextCode };
+        });
+        if (!changed) return m;
+        return {
+          ...m,
+          children: nextChildren,
+          code: refuseFromChildren(nextChildren, m.code),
+        };
+      }),
+    );
+  }, []);
+
   /** Fuse selected models into one real animatable module on a shared plane. */
   const mergeSelectedModels = useCallback(() => {
     void run('Merging models…', async () => {
@@ -519,28 +659,12 @@ export function useSceneProject() {
         throw new Error('Shift-click at least two models, then merge.');
       }
 
-      const leafIds: string[] = [];
-      for (const id of ids) {
-        const model = models.find((m) => m.id === id);
-        if (!model) continue;
-        if (model.childIds?.length) {
-          for (const childId of model.childIds) {
-            if (!leafIds.includes(childId)) leafIds.push(childId);
-          }
-        } else if (!leafIds.includes(id)) {
-          leafIds.push(id);
-        }
-      }
-      if (leafIds.length < 2) {
+      const children = snapshotLeavesForMerge(models, ids);
+      if (children.length < 2) {
         throw new Error('Need at least two distinct models to merge.');
       }
 
-      const children = leafIds
-        .map((id) => models.find((m) => m.id === id))
-        .filter((m): m is SceneModel => Boolean(m));
-
-      const fusedCode = fuseSceneModules(children.map((c) => ({ name: c.name, code: c.code })));
-
+      const fusedCode = refuseFromChildren(children);
       const id = makeId();
       const name = children.map((m) => m.name).join(' + ');
       setModels((current) => [
@@ -550,12 +674,13 @@ export function useSceneProject() {
           name: name.length > 48 ? `${name.slice(0, 48)}…` : name,
           code: fusedCode,
           createdAt: Date.now(),
-          childIds: leafIds,
+          children,
         },
       ]);
       setActiveModelId(id);
       setSelectedModelIds([id]);
       setSelectedLayer(null);
+      setFocusedChildId(null);
       setTimelineFocusModelId(id);
       setStatus({
         kind: 'info',
@@ -756,6 +881,7 @@ export function useSceneProject() {
     setActiveModelId(seed.id);
     setSelectedModelIds([seed.id]);
     setSelectedLayer(null);
+    setFocusedChildId(null);
     setTimelineFocusModelId(seed.id);
     setClips([]);
     setMp4Job(null);
@@ -782,6 +908,7 @@ export function useSceneProject() {
       setActiveModelId(next[0].id);
       setSelectedModelIds([next[0].id]);
       setSelectedLayer(null);
+      setFocusedChildId(null);
       setTimelineFocusModelId(next[0].id);
       setClips([]);
       setStatus({
@@ -795,7 +922,8 @@ export function useSceneProject() {
   return {
     code,
     setCode,
-    tunables,
+    tunables: focusedTunables,
+    allTunables: tunables,
     setParam,
     busy,
     status,
@@ -804,13 +932,18 @@ export function useSceneProject() {
     activeModelId,
     selectedModelIds,
     selectedLayer,
+    focusedChildId,
+    focusedChild,
     setActiveModel,
     selectModel,
     selectLayer,
+    focusMergeChild,
     mergeSelectedModels,
     renameModel,
     renameModelLayer,
     deleteModelLayer,
+    renameMergeChildLayer,
+    deleteMergeChildLayer,
     viewportScenes,
     clips,
     addClipAtSecond,
@@ -891,10 +1024,8 @@ function buildTimelineLanes(models: SceneModel[], clips: Clip[]): TimelineLane[]
       modelId: model.id,
     });
 
-    // Merges expose child models one level down — no part/component lanes.
-    for (const childId of model.childIds ?? []) {
-      const child = modelsById.get(childId);
-      if (!child) continue;
+    // Merges expose child snapshots one level down — no part/component lanes.
+    for (const child of model.children ?? []) {
       lanes.push({
         id: `${model.id}::child::${child.id}`,
         label: child.name,

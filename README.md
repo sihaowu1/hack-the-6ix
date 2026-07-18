@@ -28,12 +28,14 @@ hack-the-6ix/
 │                       scene-module validation, deterministic scene-code templates
 ├── skills/             Claude Skills (also valid as Claude Code skills)
 │   ├── threejs-modelling/  generates/edits the Three.js model module
-│   └── remotion-mp4/       plans fps/duration/resolution for an MP4 render
+│   ├── img2threejs/        reconstructs a model from a reference image
+│   ├── camera-composition/ shot type / blocking / CAMERA
+│   └── threejs-animation/  one-shot timeline animations
 ├── server/            Express API: AI agents, Remotion renderer, export
 │   └── src/
 │       ├── config/         merges config/default.config.json with env overrides
 │       ├── ai/              Anthropic client, skill loader, fenced-code-block extraction
-│       ├── agents/          orchestrator, model agent, render agent, offline fallback
+│       ├── agents/          orchestrator, model/animation agents, offline fallback
 │       ├── remotion/        bundles + renders the Remotion project to MP4
 │       ├── export/          code (ZIP) and MP4 export flows
 │       ├── routes/          /api/generate, /api/modify, /api/export/*
@@ -61,7 +63,7 @@ web (editor + controls + viewport)
    ▼
 server/routes  ─▶  server/agents (orchestrator)
    │                    │
-   │                    ├─▶ server/ai (Claude + threejs-modelling / remotion-mp4 skills)
+   │                    ├─▶ server/ai (Claude + modelling / animation / composition skills)
    │                    │        │ offline fallback ▶ server/agents/templateFallback (shared/sceneTemplate)
    │                    └─▶ server/remotion/renderer ─▶ remotion/ (bundle + render) ─▶ renders/*.mp4
    ▼
@@ -153,9 +155,8 @@ file packing under `models/<slug>/`.
 
 The **Render MP4** button posts to `POST /api/export/mp4` with the current
 code and fps/duration/resolution. `server/src/export/mp4Export.ts` validates
-the module, optionally asks Claude (via the `remotion-mp4` skill,
-`server/src/agents/renderAgent.ts`) to refine those settings from a
-free-text render request, then calls `server/src/remotion/renderer.ts`, which:
+the module, merges those settings with config defaults, then calls
+`server/src/remotion/renderer.ts`, which:
 
 1. writes the scene module to `remotion/src/generated/scene-module.js`,
 2. bundles the Remotion project (`@remotion/bundler`),
@@ -169,7 +170,8 @@ The client polls `GET /api/export/mp4/:jobId` for progress and gets back a
 
 ## Where the Claude Skills are
 
-`skills/threejs-modelling/SKILL.md` and `skills/remotion-mp4/SKILL.md`. They
-are loaded verbatim as system prompts by `server/src/ai/skills.ts` and are
-also valid Claude Code skill files if you want to drive the same generation
-logic directly from a Claude Code session against this repo.
+Under `skills/` (`threejs-modelling`, `img2threejs`, `camera-composition`,
+`threejs-animation`). They are loaded verbatim as system prompts by
+`server/src/ai/skills.ts` and are also valid Claude Code skill files if you
+want to drive the same generation logic directly from a Claude Code session
+against this repo.

@@ -13,8 +13,8 @@ export interface TunableParam {
  * Preview/composition aspect ratio for the Video Generation screen. This is
  * purely a framing hint for model generation (how the AI blocks objects and
  * points the camera) and for the live viewport's letterboxing — it is
- * independent of `RenderSettings.width`/`height`, which the remotion-mp4
- * skill picks separately at export time.
+ * independent of `RenderSettings.width`/`height`, which the export UI
+ * picks separately at render time.
  */
 export type AspectRatio = '16:9' | '1:1' | '4:3';
 

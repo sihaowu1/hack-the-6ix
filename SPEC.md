@@ -171,9 +171,8 @@ with that model's tunable controls, instead of the current always-visible
   source in `useSceneProject` (or a new cross-screen store) rather than two
   separate lists that can drift out of sync.
 - Video preview wires to the existing render pipeline
-  (`server/src/agents/renderAgent.ts`, `POST /api/export/render` per
-  `server/src/routes/export.ts`) — no new render backend needed, just a
-  player in this pane.
+  (`POST /api/export/mp4` per `server/src/routes/export.ts`) — no new render
+  backend needed, just a player in this pane.
 
 ---
 

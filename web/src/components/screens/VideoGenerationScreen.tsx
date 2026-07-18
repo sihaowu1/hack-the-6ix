@@ -340,7 +340,7 @@ function MaterialsList({
             >
               <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[14px] text-text" title={m.name}>
                 {m.name}
-                {m.childIds?.length ? (
+                {m.children?.length ? (
                   <span className="ml-1 font-normal text-text-dim">· merge</span>
                 ) : null}
               </span>

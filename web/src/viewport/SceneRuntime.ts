@@ -20,10 +20,20 @@ export interface ObjectTransform {
  * position/rotation override entirely inside the runtime: it never touches
  * PARAMS, generated code, or the AI agent, and it survives `updateScene`
  * running every frame (see `SceneRuntime`'s render loop).
+ *
+ * Callers that want to persist placement (Model-page merges) can use
+ * `objectName` + `getLayoutOffsets` to write `{slug}_offset*` PARAMS.
  */
 export interface ObjectHandle {
   getTransform(): ObjectTransform;
   setTransform(transform: ObjectTransform): void;
+  /** THREE object name when set (e.g. `merge:red_robot` for a fused child). */
+  objectName?: string;
+  /**
+   * For fused child roots with a layout base: offsets relative to auto-pack
+   * placement, suitable for `{slug}_offsetX/Y/Z` and `{slug}_yaw` PARAMS.
+   */
+  getLayoutOffsets?: () => { x: number; y: number; z: number; angle: number } | null;
 }
 
 export interface SceneEntry {
@@ -232,25 +242,53 @@ export class SceneRuntime {
     const hits = this.raycaster.intersectObjects(this.scene.children, true);
     if (hits.length > 0) {
       const object = this.topLevelAncestor(hits[0].object);
+      const layoutBase = object.userData?.layoutBase as
+        | { x: number; y: number; z: number }
+        | undefined;
       this.onObjectClick(
         { x: clientX, y: clientY },
         {
           getTransform: () => this.getObjectTransform(object),
           setTransform: (transform) => this.setObjectTransform(object, transform),
+          objectName: object.name || undefined,
+          getLayoutOffsets: layoutBase
+            ? () => {
+                const t = this.getObjectTransform(object);
+                return {
+                  x: t.x - layoutBase.x,
+                  y: t.y - layoutBase.y,
+                  z: t.z - layoutBase.z,
+                  angle: t.angle,
+                };
+              }
+            : undefined,
         },
       );
     }
   }
 
   /**
-   * Walks up to whatever `buildScene` added directly to the scene — moving
-   * that, not a sub-mesh, is what "the clicked object" means for compound
-   * objects. Each entry's top-level objects are wrapped in a `merge:<id>`
-   * group (see `rebuild`) so the stop condition is "parent is that group",
-   * not "parent is `this.scene`" directly.
+   * Walks up to the movable unit for a click.
+   *
+   * Fused modules nest child roots (`merge:<slug>`) under the viewport wrapper
+   * (`merge:<modelId>`). Prefer that inner child group so the whole merged
+   * model moves. Otherwise stop at the first child of a `merge:*` group (or
+   * of the scene), matching the co-view packing wrapper.
    */
   private topLevelAncestor(object: THREE.Object3D): THREE.Object3D {
-    let node = object;
+    let node: THREE.Object3D | null = object;
+    while (node) {
+      if (
+        node.name.startsWith('merge:') &&
+        node.parent &&
+        node.parent.name.startsWith('merge:')
+      ) {
+        return node;
+      }
+      node = node.parent;
+    }
+
+    node = object;
     while (node.parent && node.parent !== this.scene && !node.parent.name.startsWith('merge:')) {
       node = node.parent;
     }

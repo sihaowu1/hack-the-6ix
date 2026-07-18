@@ -1,56 +1,77 @@
 import { useMemo, useState } from 'react';
 import { extractLayers } from '@motionforge/shared';
 import { CaretRight, PencilSimple, Trash } from '@phosphor-icons/react';
-import type { SceneModel } from '../state/useSceneProject';
+import type { MergeChild, SceneModel } from '../state/useSceneProject';
 import { Button } from './ui/Button';
 
 interface Props {
   models: SceneModel[];
   activeModelId: string;
   selectedModelIds: string[];
+  focusedChildId: string | null;
   onSelectModel: (id: string, options?: { shiftKey?: boolean }) => void;
+  onFocusMergeChild: (mergeId: string, childId: string | null) => void;
   onMergeSelected: () => void;
   onRenameModel: (modelId: string, newName: string) => void;
   onRenameLayer: (modelId: string, oldName: string, newName: string) => void;
   onDeleteLayer: (modelId: string, layerName: string) => void;
+  onRenameMergeChildLayer: (
+    mergeId: string,
+    childId: string,
+    oldName: string,
+    newName: string,
+  ) => void;
+  onDeleteMergeChildLayer: (mergeId: string, childId: string, layerName: string) => void;
 }
 
 type EditTarget =
   | { kind: 'model'; modelId: string }
-  | { kind: 'layer'; modelId: string; name: string };
+  | { kind: 'layer'; modelId: string; name: string }
+  | { kind: 'childLayer'; mergeId: string; childId: string; name: string };
 
 /**
  * One row per generated scene/model, expandable to show its layers (the mesh
  * groups `buildScene` returns — see `shared/src/layers.ts`). Merged models
- * expand to a dropdown of their child model names instead.
+ * expand to embedded child copies; each child expands further to its layers.
  *
  * Click activates a single model; shift-click adds/removes from a multi-select
- * set. With two or more selected, Merge builds a co-view group. Model rows and
- * layer rows both support inline rename; layers can also be deleted.
+ * set. With two or more selected, Merge builds an independent fused copy.
  */
 export function ModelsLayersList({
   models,
   activeModelId,
   selectedModelIds,
+  focusedChildId,
   onSelectModel,
+  onFocusMergeChild,
   onMergeSelected,
   onRenameModel,
   onRenameLayer,
   onDeleteLayer,
+  onRenameMergeChildLayer,
+  onDeleteMergeChildLayer,
 }: Props) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedChildId, setExpandedChildId] = useState<string | null>(null);
   const [editing, setEditing] = useState<EditTarget | null>(null);
   const [editValue, setEditValue] = useState('');
 
   const layersByModel = useMemo(() => {
     const map = new Map<string, string[]>();
-    for (const model of models) map.set(model.id, extractLayers(model.code));
+    for (const model of models) {
+      if (model.children?.length) continue;
+      map.set(model.id, extractLayers(model.code));
+    }
     return map;
   }, [models]);
 
-  const modelsById = useMemo(() => {
-    const map = new Map<string, SceneModel>();
-    for (const model of models) map.set(model.id, model);
+  const layersByChild = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const model of models) {
+      for (const child of model.children ?? []) {
+        map.set(child.id, extractLayers(child.code));
+      }
+    }
     return map;
   }, [models]);
 
@@ -66,13 +87,22 @@ export function ModelsLayersList({
     setEditValue(name);
   };
 
+  const startRenameChildLayer = (mergeId: string, childId: string, name: string) => {
+    setEditing({ kind: 'childLayer', mergeId, childId, name });
+    setEditValue(name);
+  };
+
   const commitRename = () => {
     if (!editing) return;
     const next = editValue.trim();
     if (editing.kind === 'model') {
       if (next) onRenameModel(editing.modelId, next);
+    } else if (editing.kind === 'layer') {
+      if (next && next !== editing.name) {
+        onRenameLayer(editing.modelId, editing.name, next);
+      }
     } else if (next && next !== editing.name) {
-      onRenameLayer(editing.modelId, editing.name, next);
+      onRenameMergeChildLayer(editing.mergeId, editing.childId, editing.name, next);
     }
     setEditing(null);
   };
@@ -89,9 +119,6 @@ export function ModelsLayersList({
 
   return (
     <div className="flex flex-col gap-2">
-      {/* The merge affordance only earns a row once it is reachable. The
-          standing "Shift-click to select multiple" hint moved into the
-          button's tooltip, where it is available without costing space. */}
       {canMerge && (
         <div className="flex items-center justify-between gap-2">
           <span className="text-[11px] text-text-dim">{selectedModelIds.length} selected</span>
@@ -99,7 +126,7 @@ export function ModelsLayersList({
             variant="secondary"
             type="button"
             onClick={onMergeSelected}
-            title="Place selected models side-by-side on one plane"
+            title="Copy selected models into one fused, movable scene"
           >
             Merge
           </Button>
@@ -112,19 +139,14 @@ export function ModelsLayersList({
           const expanded = expandedId === model.id;
           const active = model.id === activeModelId;
           const selected = selectedModelIds.includes(model.id);
-          const isMerge = Boolean(model.childIds?.length);
-          const childModels = (model.childIds ?? [])
-            .map((id) => modelsById.get(id))
-            .filter((m): m is SceneModel => Boolean(m));
-          const badgeCount = isMerge ? childModels.length : layers.length;
+          const isMerge = Boolean(model.children?.length);
+          const children = model.children ?? [];
+          const badgeCount = isMerge ? children.length : layers.length;
           const isEditingModel = editing?.kind === 'model' && editing.modelId === model.id;
 
           return (
             <li
               key={model.id}
-              // Selection is a tint, not an outline. A blue ring around the
-              // active card made every list read as a row of alerts and left
-              // nothing louder for the primary action to be.
               className={`group/model overflow-hidden rounded-lg border border-border ${
                 active || selected ? 'bg-bg-hover' : 'bg-bg-raised'
               }`}
@@ -144,6 +166,7 @@ export function ModelsLayersList({
                     onSelectModel(model.id, { shiftKey: event.shiftKey });
                     if (!event.shiftKey) {
                       setExpandedId(expanded ? null : model.id);
+                      if (expanded) setExpandedChildId(null);
                     }
                   }}
                 >
@@ -216,24 +239,44 @@ export function ModelsLayersList({
               {expanded && (
                 <ul className="m-0 flex flex-col gap-0.5 py-0 pl-[30px] pr-2.5 pb-2">
                   {isMerge ? (
-                    childModels.length === 0 ? (
+                    children.length === 0 ? (
                       <li className="font-sans text-[12px] italic text-text-dim">
                         No child models found
                       </li>
                     ) : (
-                      childModels.map((child) => (
-                        <li key={child.id}>
-                          <button
-                            type="button"
-                            className="w-full border-none bg-transparent px-0 py-0.5 text-left font-sans text-[12px] text-text-dim hover:text-text"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              onSelectModel(child.id, { shiftKey: event.shiftKey });
-                            }}
-                          >
-                            {child.name}
-                          </button>
-                        </li>
+                      children.map((child) => (
+                        <MergeChildRow
+                          key={child.id}
+                          mergeId={model.id}
+                          child={child}
+                          layers={layersByChild.get(child.id) ?? []}
+                          focused={focusedChildId === child.id}
+                          expanded={expandedChildId === child.id}
+                          editing={editing}
+                          editValue={editValue}
+                          onToggleExpand={() =>
+                            setExpandedChildId((current) =>
+                              current === child.id ? null : child.id,
+                            )
+                          }
+                          onFocus={() => onFocusMergeChild(model.id, child.id)}
+                          onEditValueChange={setEditValue}
+                          onStartRenameLayer={(name) =>
+                            startRenameChildLayer(model.id, child.id, name)
+                          }
+                          onCommitRename={commitRename}
+                          onCancelRename={cancelRename}
+                          onDeleteLayer={(name) => {
+                            if (
+                              editing?.kind === 'childLayer' &&
+                              editing.childId === child.id &&
+                              editing.name === name
+                            ) {
+                              setEditing(null);
+                            }
+                            onDeleteMergeChildLayer(model.id, child.id, name);
+                          }}
+                        />
                       ))
                     )
                   ) : layers.length === 0 ? (
@@ -315,5 +358,143 @@ export function ModelsLayersList({
         })}
       </ul>
     </div>
+  );
+}
+
+interface MergeChildRowProps {
+  mergeId: string;
+  child: MergeChild;
+  layers: string[];
+  focused: boolean;
+  expanded: boolean;
+  editing: EditTarget | null;
+  editValue: string;
+  onToggleExpand: () => void;
+  onFocus: () => void;
+  onEditValueChange: (value: string) => void;
+  onStartRenameLayer: (name: string) => void;
+  onCommitRename: () => void;
+  onCancelRename: () => void;
+  onDeleteLayer: (name: string) => void;
+}
+
+function MergeChildRow({
+  child,
+  layers,
+  focused,
+  expanded,
+  editing,
+  editValue,
+  onToggleExpand,
+  onFocus,
+  onEditValueChange,
+  onStartRenameLayer,
+  onCommitRename,
+  onCancelRename,
+  onDeleteLayer,
+}: MergeChildRowProps) {
+  return (
+    <li className="flex flex-col gap-0.5">
+      <button
+        type="button"
+        className={`flex w-full items-center gap-1.5 border-none bg-transparent px-0 py-0.5 text-left font-sans text-[12px] ${
+          focused ? 'text-accent' : 'text-text-dim hover:text-text'
+        }`}
+        aria-expanded={expanded}
+        onClick={(event) => {
+          event.stopPropagation();
+          onFocus();
+          onToggleExpand();
+        }}
+      >
+        <CaretRight
+          size={10}
+          weight="bold"
+          className={`flex-shrink-0 transition-transform duration-150 ease-out ${
+            expanded ? 'rotate-90' : ''
+          }`}
+          aria-hidden="true"
+        />
+        <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+          {child.name}
+        </span>
+        <span className="flex-shrink-0 tabular-nums text-[10px] text-text-faint">
+          {layers.length}
+        </span>
+      </button>
+      {expanded && (
+        <ul className="m-0 flex list-none flex-col gap-0.5 py-0 pl-4">
+          {layers.length === 0 ? (
+            <li className="font-sans text-[11px] italic text-text-dim">No mesh groups found</li>
+          ) : (
+            layers.map((layer) => {
+              const isEditingLayer =
+                editing?.kind === 'childLayer' &&
+                editing.childId === child.id &&
+                editing.name === layer;
+
+              return (
+                <li
+                  key={layer}
+                  className="group flex items-center gap-1 py-0.5 font-mono text-[11px] text-text-dim"
+                >
+                  {isEditingLayer ? (
+                    <input
+                      autoFocus
+                      value={editValue}
+                      onChange={(event) => onEditValueChange(event.target.value)}
+                      onBlur={onCommitRename}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault();
+                          onCommitRename();
+                        } else if (event.key === 'Escape') {
+                          event.preventDefault();
+                          onCancelRename();
+                        }
+                      }}
+                      className="min-w-0 flex-1 rounded border border-accent bg-bg px-1.5 py-0.5 font-mono text-[11px] text-text outline-none"
+                      aria-label={`Rename layer ${layer}`}
+                    />
+                  ) : (
+                    <span
+                      className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
+                      title={layer}
+                      onDoubleClick={() => onStartRenameLayer(layer)}
+                    >
+                      {layer}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded border-none bg-transparent text-text-dim opacity-0 transition-opacity hover:bg-bg-hover hover:text-text group-hover:opacity-100 focus-visible:opacity-100"
+                    title={`Rename ${layer}`}
+                    aria-label={`Rename ${layer}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onStartRenameLayer(layer);
+                    }}
+                  >
+                    <PencilSimple size={11} weight="bold" aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded border-none bg-transparent text-text-dim opacity-0 transition-opacity hover:bg-error/15 hover:text-error group-hover:opacity-100 focus-visible:opacity-100"
+                    title={`Delete ${layer}`}
+                    aria-label={`Delete ${layer}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onDeleteLayer(layer);
+                    }}
+                  >
+                    <Trash size={11} weight="bold" aria-hidden="true" />
+                  </button>
+                </li>
+              );
+            })
+          )}
+        </ul>
+      )}
+    </li>
   );
 }

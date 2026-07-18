@@ -36,7 +36,7 @@ web (editor + controls + viewport)
 server/routes  ─▶  server/agents (orchestrator)
    │                    │
    │                    ├─▶ server/ai (Claude + threejs-modelling / img2threejs / camera-composition /
-   │                    │        threejs-animation / remotion-mp4 skills)
+   │                    │        threejs-animation skills)
    │                    │        │ offline fallback ▶ server/agents/templateFallback (shared/sceneTemplate)
    │                    └─▶ server/remotion/renderer ─▶ remotion/ (bundle + render) ─▶ renders/*.mp4
    ▼
@@ -53,8 +53,7 @@ server/export (code ZIP via shared templates, MP4 job polling)
   - `ai/` — Anthropic client, skill loader, fenced-code-block extraction from model output.
   - `agents/` — `orchestrator.ts` (entry point for generate/modify/animate), `modelAgent.ts`,
     `animationAgent.ts` (intent-routed animation and/or camera-composition), `fuseAgent.ts`
-    (legacy AI fuse; client merges are deterministic co-view), `renderAgent.ts`,
-    `templateFallback.ts` (offline).
+    (legacy AI fuse; client merges are deterministic co-view), `templateFallback.ts` (offline).
   - `remotion/` — bundles and renders the Remotion project to MP4.
   - `export/` — code (ZIP) and MP4 export flows; reuses `shared` templates, doesn't duplicate them.
   - `routes/` — `/api/generate`, `/api/modify`, `/api/animate`, `/api/fuse`, `/api/export/*`.
@@ -64,7 +63,8 @@ server/export (code ZIP via shared templates, MP4 job polling)
   - `viewport/` — live Three.js/WebGL preview runtime (`SceneRuntime.ts`).
   - `state/useSceneProject.ts` — the single client-side state hook; tracks models, an
     **animation library** per model (`animations[]`; base `code` stays frozen after modelling),
-    merges (deterministic fuse into one animatable module; `childIds` for hierarchy UI), and a
+    merges (deterministic fuse into one animatable module; `children` hold
+    independent code snapshots for hierarchy UI — not live links to sources), and a
     hierarchical multi-track timeline (Video screen only).
   - `api/client.ts` — typed fetch client for the server API.
 - **`remotion/`** — renders a generated scene module to MP4. `generated/scene-module.js` is
@@ -95,10 +95,11 @@ decomposition, used instead of `threejs-modelling` when an image is present),
 `skills/camera-composition/SKILL.md` (shot type / blocking / `CAMERA` — used by model generation
 and by the video agent when the prompt is framing-focused or a “big” scene),
 `skills/threejs-animation/SKILL.md` (one-shot timeline animations; video agent classifies
-prompt → animation / composition / both), and `skills/remotion-mp4/SKILL.md`
-(fps/duration/resolution planning for a render, invoked before an MP4 export). Merges build one
-deterministic fused module (`shared/fuseModules`) on a shared ground plane — selectable and
-animatable like any other model.
+prompt → animation / composition / both). MP4 fps/duration/resolution come from the export UI
+(and config defaults), not an AI skill. Merges build one deterministic fused module
+(`shared/fuseModules`) on a shared ground plane — selectable and animatable like any other
+model. Child source is snapshotted into the merge (`children`); placement uses per-child
+offset PARAMS.
 
 ## Config
 
