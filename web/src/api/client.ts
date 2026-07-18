@@ -71,6 +71,27 @@ async function postJson<T>(path: string, body: unknown, options?: { requireAuth?
   return response.json() as Promise<T>;
 }
 
+async function patchJson<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(path, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(await authHeaders({ required: true })),
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw await parseError(response);
+  return response.json() as Promise<T>;
+}
+
+async function deleteRequest(path: string): Promise<void> {
+  const response = await fetch(path, {
+    method: 'DELETE',
+    headers: await authHeaders({ required: true }),
+  });
+  if (!response.ok) throw await parseError(response);
+}
+
 export const generate = (prompt: string, image?: ReferenceImage) =>
   postJson<GenerationResult>('/api/generate', { prompt, ...(image && { image }) });
 
@@ -95,14 +116,20 @@ export interface MarketplaceListResponse {
   pages: number;
 }
 
-export const getMarketplace = (page = 1, limit = 20) =>
-  getJson<MarketplaceListResponse>(`/api/marketplace?page=${page}&limit=${limit}`);
+export const getMarketplace = (page = 1, limit = 20, mine?: boolean) =>
+  getJson<MarketplaceListResponse>(`/api/marketplace?page=${page}&limit=${limit}${mine ? '&mine=1' : ''}`);
 
 export const getMarketplaceItem = (id: string) =>
   getJson<MarketplaceItemDetail>(`/api/marketplace/${id}`);
 
 export const publishToMarketplace = (body: PublishRequest) =>
   postJson<{ id: string }>('/api/marketplace/publish', body);
+
+export const updateMarketplaceItem = (id: string, body: { title?: string; description?: string }) =>
+  patchJson<MarketplaceItemDetail>(`/api/marketplace/${id}`, body);
+
+export const deleteMarketplaceItem = (id: string) =>
+  deleteRequest(`/api/marketplace/${id}`);
 
 // ─── Export ─────────────────────────────────────────────────────────────────
 

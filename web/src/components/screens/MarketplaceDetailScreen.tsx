@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import type { MarketplaceItemDetail } from '@motionforge/shared';
-import { getMarketplaceItem } from '../../api/client';
+import { getMarketplaceItem, updateMarketplaceItem, deleteMarketplaceItem } from '../../api/client';
+import { useAuth } from '../../auth/useAuth';
 import { Viewport } from '../../viewport/Viewport';
 import { exportSceneAs, type ModelFormat } from '../../viewport/exportScene';
 import { Button, IconButton } from '../ui/Button';
@@ -49,12 +50,22 @@ ${item.code}
 
 export function MarketplaceDetailScreen() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const { isAuthenticated, user } = useAuth();
   const [item, setItem] = useState<MarketplaceItemDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState<string | null>(null);
   const [exportBusy, setExportBusy] = useState(false);
   const [expanded, setExpanded] = useState(false);
+
+  // Inline edit state
+  const [editing, setEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDesc, setEditDesc] = useState('');
+  const [editBusy, setEditBusy] = useState(false);
+
+  const isOwned = isAuthenticated && user?.sub && item?.creatorSub === user.sub;
 
   useEffect(() => {
     if (!id) return;
@@ -94,6 +105,37 @@ export function MarketplaceDetailScreen() {
     }
   }, [item]);
 
+  const startEdit = useCallback(() => {
+    if (!item) return;
+    setEditTitle(item.title);
+    setEditDesc(item.description);
+    setEditing(true);
+  }, [item]);
+
+  const saveEdit = useCallback(async () => {
+    if (!item || !id) return;
+    setEditBusy(true);
+    try {
+      const updated = await updateMarketplaceItem(id, { title: editTitle, description: editDesc });
+      setItem(updated);
+      setEditing(false);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setEditBusy(false);
+    }
+  }, [id, item, editTitle, editDesc]);
+
+  const handleDelete = useCallback(async () => {
+    if (!id || !confirm('Delete this item? This cannot be undone.')) return;
+    try {
+      await deleteMarketplaceItem(id);
+      navigate('/marketplace');
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }, [id, navigate]);
+
   const containerClassName = 'mx-auto flex w-full max-w-[1200px] flex-col gap-5 overflow-y-auto p-6';
 
   if (loading) return <main className={containerClassName}><p className="text-[14px] text-text-dim">Loading…</p></main>;
@@ -128,8 +170,55 @@ export function MarketplaceDetailScreen() {
         {/* Left: info + actions */}
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
-            <h1 className="m-0 text-2xl font-bold text-text">{item.title}</h1>
-            <p className="m-0 text-[15px] text-text-dim">{item.description}</p>
+            {editing ? (
+              <>
+                <input
+                  className="rounded-md border border-border bg-bg-raised px-3 py-1.5 text-xl font-bold text-text outline-none focus:border-accent"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  maxLength={120}
+                />
+                <textarea
+                  className="min-h-[60px] rounded-md border border-border bg-bg-raised px-3 py-1.5 text-[15px] text-text outline-none focus:border-accent"
+                  value={editDesc}
+                  onChange={(e) => setEditDesc(e.target.value)}
+                  maxLength={1000}
+                />
+                <div className="flex gap-2">
+                  <Button variant="primary" type="button" disabled={editBusy} onClick={saveEdit}>
+                    {editBusy ? 'Saving…' : 'Save'}
+                  </Button>
+                  <Button variant="secondary" type="button" onClick={() => setEditing(false)}>Cancel</Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-start gap-2">
+                  <h1 className="m-0 flex-1 text-2xl font-bold text-text">{item.title}</h1>
+                  {isOwned && (
+                    <div className="flex gap-1">
+                      <button
+                        type="button"
+                        onClick={startEdit}
+                        title="Edit"
+                        className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border border-border bg-transparent text-text-dim transition-colors hover:bg-bg-raised hover:text-text"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDelete}
+                        title="Delete"
+                        className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border border-border bg-transparent text-text-dim transition-colors hover:bg-red-900/40 hover:text-red-400"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <p className="m-0 text-[15px] text-text-dim">{item.description}</p>
+              </>
+            )}
             <div className="flex items-center gap-2 text-[13px] text-text-dim">
               {item.creator.picture && <img src={item.creator.picture} alt="" className="h-6 w-6 rounded-full" />}
               <span>{item.creator.name}</span>

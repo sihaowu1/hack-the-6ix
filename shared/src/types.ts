@@ -110,6 +110,7 @@ export interface MarketplaceItemSummary {
   description: string;
   code: string;
   creator: { name: string; picture?: string };
+  creatorSub?: string;
   publishedAt: string;
 }
 
