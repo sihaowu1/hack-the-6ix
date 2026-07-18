@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { extractLayers } from '@motionforge/shared';
-import { CaretRight } from '@phosphor-icons/react';
+import { CaretRight, PencilSimple, Trash } from '@phosphor-icons/react';
 import type { SceneModel } from '../state/useSceneProject';
 
 interface Props {
@@ -9,6 +9,8 @@ interface Props {
   selectedModelIds: string[];
   onSelectModel: (id: string, options?: { shiftKey?: boolean }) => void;
   onMergeSelected: () => void;
+  onRenameLayer: (modelId: string, oldName: string, newName: string) => void;
+  onDeleteLayer: (modelId: string, layerName: string) => void;
 }
 
 /**
@@ -17,7 +19,8 @@ interface Props {
  * expand to a dropdown of their child model names instead.
  *
  * Click activates a single model; shift-click adds/removes from a multi-select
- * set. With two or more selected, Merge builds a co-view group.
+ * set. With two or more selected, Merge builds a co-view group. Layer rows
+ * support inline rename and delete (which patch the model's scene module).
  */
 export function ModelsLayersList({
   models,
@@ -25,8 +28,12 @@ export function ModelsLayersList({
   selectedModelIds,
   onSelectModel,
   onMergeSelected,
+  onRenameLayer,
+  onDeleteLayer,
 }: Props) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [editingLayer, setEditingLayer] = useState<{ modelId: string; name: string } | null>(null);
+  const [editValue, setEditValue] = useState('');
 
   const layersByModel = useMemo(() => {
     const map = new Map<string, string[]>();
@@ -41,6 +48,20 @@ export function ModelsLayersList({
   }, [models]);
 
   const canMerge = selectedModelIds.length >= 2;
+
+  const startRename = (modelId: string, name: string) => {
+    setEditingLayer({ modelId, name });
+    setEditValue(name);
+  };
+
+  const commitRename = () => {
+    if (!editingLayer) return;
+    const next = editValue.trim();
+    if (next && next !== editingLayer.name) {
+      onRenameLayer(editingLayer.modelId, editingLayer.name, next);
+    }
+    setEditingLayer(null);
+  };
 
   if (models.length === 0) {
     return (
@@ -162,11 +183,70 @@ export function ModelsLayersList({
                       No mesh groups found
                     </li>
                   ) : (
-                    layers.map((layer) => (
-                      <li key={layer} className="font-mono text-[12px] text-text-dim">
-                        {layer}
-                      </li>
-                    ))
+                    layers.map((layer) => {
+                      const isEditing =
+                        editingLayer?.modelId === model.id && editingLayer.name === layer;
+
+                      return (
+                        <li
+                          key={layer}
+                          className="group flex items-center gap-1 py-0.5 font-mono text-[12px] text-text-dim"
+                        >
+                          {isEditing ? (
+                            <input
+                              autoFocus
+                              value={editValue}
+                              onChange={(event) => setEditValue(event.target.value)}
+                              onBlur={commitRename}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter') {
+                                  event.preventDefault();
+                                  commitRename();
+                                } else if (event.key === 'Escape') {
+                                  event.preventDefault();
+                                  setEditingLayer(null);
+                                }
+                              }}
+                              className="min-w-0 flex-1 rounded border border-accent bg-bg px-1.5 py-0.5 font-mono text-[12px] text-text outline-none"
+                              aria-label={`Rename layer ${layer}`}
+                            />
+                          ) : (
+                            <span
+                              className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
+                              title={layer}
+                              onDoubleClick={() => startRename(model.id, layer)}
+                            >
+                              {layer}
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded border-none bg-transparent text-text-dim opacity-0 transition-opacity hover:bg-bg-hover hover:text-text group-hover:opacity-100 focus-visible:opacity-100"
+                            title={`Rename ${layer}`}
+                            aria-label={`Rename ${layer}`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              startRename(model.id, layer);
+                            }}
+                          >
+                            <PencilSimple size={12} weight="bold" aria-hidden="true" />
+                          </button>
+                          <button
+                            type="button"
+                            className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded border-none bg-transparent text-text-dim opacity-0 transition-opacity hover:bg-error/15 hover:text-error group-hover:opacity-100 focus-visible:opacity-100"
+                            title={`Delete ${layer}`}
+                            aria-label={`Delete ${layer}`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              if (editingLayer?.name === layer) setEditingLayer(null);
+                              onDeleteLayer(model.id, layer);
+                            }}
+                          >
+                            <Trash size={12} weight="bold" aria-hidden="true" />
+                          </button>
+                        </li>
+                      );
+                    })
                   )}
                 </ul>
               )}

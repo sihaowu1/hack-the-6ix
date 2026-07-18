@@ -3,8 +3,10 @@ import type { Dispatch, SetStateAction } from 'react';
 import {
   DEFAULT_BLENDER_CODE,
   DEFAULT_SCENE_CODE,
+  deleteLayer as deleteLayerInCode,
   parseTunables,
   patchParam,
+  renameLayer as renameLayerInCode,
   type RenderSettings,
 } from '@motionforge/shared';
 import * as api from '../api/client';
@@ -280,6 +282,30 @@ export function useSceneProject() {
     setSelectedModelIds([id]);
   }, []);
 
+  /** Renames a mesh-group key on a model's scene module (code stays source of truth). */
+  const renameModelLayer = useCallback((modelId: string, oldName: string, newName: string) => {
+    const trimmed = newName.trim();
+    if (!trimmed || trimmed === oldName) return;
+    setModels((current) =>
+      current.map((m) => {
+        if (m.id !== modelId || m.childIds?.length) return m;
+        const code = renameLayerInCode(m.code, oldName, trimmed);
+        return code === m.code ? m : { ...m, code };
+      }),
+    );
+  }, []);
+
+  /** Removes a mesh-group from a model's scene module so it no longer renders. */
+  const deleteModelLayer = useCallback((modelId: string, layerName: string) => {
+    setModels((current) =>
+      current.map((m) => {
+        if (m.id !== modelId || m.childIds?.length) return m;
+        const code = deleteLayerInCode(m.code, layerName);
+        return code === m.code ? m : { ...m, code };
+      }),
+    );
+  }, []);
+
   /**
    * Creates a co-view merge from the current multi-selection. Children remain
    * separate models; the new row only groups them for side-by-side viewing.
@@ -447,6 +473,8 @@ export function useSceneProject() {
     setActiveModel,
     selectModel,
     mergeSelectedModels,
+    renameModelLayer,
+    deleteModelLayer,
     viewportScenes,
     clips,
     addClipAtSecond,

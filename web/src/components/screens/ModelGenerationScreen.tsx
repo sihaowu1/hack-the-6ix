@@ -85,6 +85,8 @@ export function ModelGenerationScreen({ project }: Props) {
               selectedModelIds={project.selectedModelIds}
               onSelectModel={project.selectModel}
               onMergeSelected={project.mergeSelectedModels}
+              onRenameLayer={project.renameModelLayer}
+              onDeleteLayer={project.deleteModelLayer}
             />
           </div>
         </section>
