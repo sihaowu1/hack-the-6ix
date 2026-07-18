@@ -43,6 +43,9 @@ export interface VideoGenerationScreenProps {
    * `modelId` at whole-second `second` (from `useSceneProject.addClipAtSecond`).
    */
   onDropModel: (modelId: string, second: number) => void;
+  /** Selects a material as the animation / edit target (from `useSceneProject.setActiveModel`). */
+  activeModelId: string;
+  onSelectModel: (id: string) => void;
   /** Deletes a clip, from the timeline's right-click menu (from `useSceneProject.deleteClip`). */
   onDeleteClip: (clipId: string) => void;
   /** Stashes a clip in the clipboard, from the timeline's right-click menu (from `useSceneProject.copyClip`). */
@@ -81,6 +84,8 @@ export function VideoGenerationScreen({
   previewTime,
   previewModelName,
   onDropModel,
+  activeModelId,
+  onSelectModel,
   onDeleteClip,
   onCopyClip,
   onPasteClip,
@@ -129,7 +134,7 @@ export function VideoGenerationScreen({
         </Pane>
         <ResizeHandle direction="horizontal" onPointerDown={chatWidth.startDragging} label="Resize chat panel" />
         <Pane title="Materials">
-          <MaterialsList models={models} />
+          <MaterialsList models={models} activeModelId={activeModelId} onSelectModel={onSelectModel} />
         </Pane>
         <ResizeHandle
           direction="horizontal"
@@ -201,12 +206,19 @@ function formatDropSecond(time: number): number {
 }
 
 /**
- * Read-only list of models generated on the Model Generation screen.
- * Purely a view over the `models` prop — no local state, no fetching. Each
- * item is draggable so it can be dropped onto the video preview to place it
- * on the timeline (see `MODEL_DRAG_TYPE`).
+ * List of models generated on the Model Generation screen.
+ * Click selects the animation/edit target; drag onto the preview/timeline
+ * places a clip (`MODEL_DRAG_TYPE`).
  */
-function MaterialsList({ models }: { models: SceneModel[] }) {
+function MaterialsList({
+  models,
+  activeModelId,
+  onSelectModel,
+}: {
+  models: SceneModel[];
+  activeModelId: string;
+  onSelectModel: (id: string) => void;
+}) {
   if (models.length === 0) {
     return (
       <Placeholder
@@ -217,25 +229,33 @@ function MaterialsList({ models }: { models: SceneModel[] }) {
   }
   return (
     <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
-      {models.map((m) => (
-        <li
-          key={m.id}
-          className="flex cursor-grab items-center gap-2 rounded-lg border border-border bg-bg-raised px-3 py-2"
-          draggable
-          onDragStart={(event) => {
-            event.dataTransfer.setData(MODEL_DRAG_TYPE, m.id);
-            event.dataTransfer.effectAllowed = 'copy';
-          }}
-        >
-          <div className="h-8 w-8 flex-shrink-0 rounded-sm border border-border bg-bg" aria-hidden="true" />
-          <span className="overflow-hidden text-ellipsis whitespace-nowrap text-[14px] text-text" title={m.name}>
-            {m.name}
-            {m.childIds?.length ? (
-              <span className="ml-1 font-normal text-text-dim">· merge</span>
-            ) : null}
-          </span>
-        </li>
-      ))}
+      {models.map((m) => {
+        const isActive = m.id === activeModelId;
+        return (
+          <li
+            key={m.id}
+            className={`flex cursor-grab items-center gap-2 rounded-lg border px-3 py-2 ${
+              isActive
+                ? 'border-accent bg-accent/10'
+                : 'border-border bg-bg-raised hover:border-border hover:bg-bg-raised/80'
+            }`}
+            draggable
+            onClick={() => onSelectModel(m.id)}
+            onDragStart={(event) => {
+              event.dataTransfer.setData(MODEL_DRAG_TYPE, m.id);
+              event.dataTransfer.effectAllowed = 'copy';
+            }}
+          >
+            <div className="h-8 w-8 flex-shrink-0 rounded-sm border border-border bg-bg" aria-hidden="true" />
+            <span className="overflow-hidden text-ellipsis whitespace-nowrap text-[14px] text-text" title={m.name}>
+              {m.name}
+              {m.childIds?.length ? (
+                <span className="ml-1 font-normal text-text-dim">· merge</span>
+              ) : null}
+            </span>
+          </li>
+        );
+      })}
     </ul>
   );
 }

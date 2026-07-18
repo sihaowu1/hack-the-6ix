@@ -47,6 +47,8 @@ export function App() {
                 previewTime={project.previewTime}
                 previewModelName={project.previewModelName}
                 onDropModel={project.addClipAtSecond}
+                activeModelId={project.activeModelId}
+                onSelectModel={project.setActiveModel}
                 onDeleteClip={project.deleteClip}
                 onCopyClip={project.copyClip}
                 onPasteClip={project.pasteClip}
@@ -56,9 +58,12 @@ export function App() {
                   <ChatPanel
                     busy={project.busy}
                     status={project.status}
-                    onGenerate={project.generate}
+                    onGenerate={project.animate}
                     onModify={project.modify}
                     showTitle={false}
+                    generateLabel="Animate"
+                    placeholder="Describe an animation — uses the selected model, or name one in the prompt…"
+                    emptyHint="Animate the active model (or name a model in your prompt). One-shot timeline — no looping filler."
                   />
                 }
               />
@@ -105,8 +110,7 @@ function TopNav() {
   return (
     <div className="flex flex-shrink-0 items-center gap-5 border-b border-border bg-bg-panel px-4 py-2.5">
       <Link to="/" className="flex items-center gap-2 text-text no-underline hover:opacity-80">
-        <Logo size={26} />
-        <span className="text-[20px] font-semibold tracking-wide">Zendai</span>
+        <Logo size={120} />
       </Link>
       <nav className="flex gap-1" aria-label="Screens">
         <NavLink to="/model" className={navLinkClassName}>
