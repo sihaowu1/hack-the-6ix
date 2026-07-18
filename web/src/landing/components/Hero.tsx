@@ -38,7 +38,7 @@ export default function Hero() {
           </span>
           <span className="font-mono-label text-slate-400">v1.0</span>
           <span className="h-px w-8 bg-royal-blue/40" />
-          <span className="font-mono-label text-white">Code-First 3D Engine</span>
+          <span className="font-mono-label text-white">AI-Powered 3D Studio</span>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-16 items-center">
@@ -50,6 +50,9 @@ export default function Hero() {
                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-blue-300 to-blue-400 transition-all duration-700 ease-out inline-block">
                   Prompt
                 </span>
+                <svg className="absolute -bottom-1 left-0 w-full" height="8" viewBox="0 0 200 8" preserveAspectRatio="none" fill="none">
+                  <path d="M2 5 C 50 2, 150 2, 198 5" stroke="#60A5FA" strokeWidth="2.5" strokeLinecap="round" />
+                </svg>
                 <span
                   className="pointer-events-none absolute inset-0 rounded bg-gradient-to-r from-blue-400/0 via-blue-300/30 to-blue-400/0 opacity-0 group-hover:opacity-100 transition-opacity duration-700 animate-shimmer"
                   style={{ mixBlendMode: 'overlay' }}
@@ -57,8 +60,8 @@ export default function Hero() {
               </span>
             </h1>
             <p className="mt-6 max-w-md text-base lg:text-lg leading-relaxed text-slate-400">
-              Pure code, not mesh. Generate editable Three.js scenes you can
-              tune line-by-line — no opaque AI assets, just clean code you own.
+              Describe what you want, get a fully editable 3D scene back.
+              Every result is real code you can tweak, remix, and make your own.
             </p>
 
             <div className="mt-9 flex flex-wrap items-center gap-3">

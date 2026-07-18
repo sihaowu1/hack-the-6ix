@@ -4,27 +4,27 @@ import { Code2, PencilRuler, MonitorPlay, FileCode2, ArrowUpRight } from "lucide
 const FEATURES = [
   {
     icon: Code2,
-    title: "Code, Not Mesh",
+    title: "Fully Editable Output",
     description:
-      "Every scene is pure Three.js source — readable, diffable, and version-controllable. No opaque binary assets or black-box AI outputs.",
+      "Unlike AI tools that give you a black box, Zendai gives you real code. Change anything — colors, shapes, motion — without starting over.",
   },
   {
     icon: PencilRuler,
-    title: "Edit Any Line",
+    title: "Tweak, Don't Regenerate",
     description:
-      "Change a color, tweak a camera path, adjust timing — it's just code. Modify anything without regenerating the entire scene.",
+      "Adjust a single detail without redoing the whole scene. Move a light, shift a color, speed up an animation — one change at a time.",
   },
   {
     icon: MonitorPlay,
-    title: "Instant Preview",
+    title: "See Changes Instantly",
     description:
-      "Real-time WebGL rendering in the browser. See every code change reflected live — no build step, no waiting.",
+      "Every edit shows up live in the browser. No waiting for renders, no loading screens — just immediate visual feedback.",
   },
   {
     icon: FileCode2,
-    title: "Ship as Code or Video",
+    title: "Export Anywhere",
     description:
-      "Export production-ready Three.js components to drop into any app, or render cinematic MP4s via Remotion.",
+      "Drop your scene into any web project as a component, or render a polished video ready for social media or presentations.",
   },
 ];
 
@@ -38,11 +38,11 @@ export default function Features() {
           </div>
           <div className="lg:col-span-8">
             <h2 className="font-heading text-3xl sm:text-4xl lg:text-5xl font-bold tracking-[-0.03em] text-white text-balance">
-              Why code beats mesh.
+              You stay in control.
             </h2>
             <p className="mt-4 max-w-xl text-slate-400 leading-relaxed">
-              AI-generated meshes are a black box. Code-first means you
-              understand, control, and ship every pixel.
+              Most AI 3D tools hand you something you can't change.
+              Zendai gives you results you can actually work with.
             </p>
           </div>
         </div>
