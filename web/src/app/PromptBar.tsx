@@ -21,7 +21,7 @@ export function PromptBar({ busy, onGenerate, onModify }: Props) {
 
   return (
     <header className="prompt-bar">
-      <span className="brand">MotionForge</span>
+      <span className="brand">Zendai</span>
       <input
         type="text"
         value={prompt}

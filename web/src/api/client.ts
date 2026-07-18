@@ -1,6 +1,6 @@
 import type { GenerationResult, RenderSettings } from '@motionforge/shared';
 
-/** Thin typed client for the MotionForge server API (proxied through Vite). */
+/** Thin typed client for the Zendai server API (proxied through Vite). */
 
 export interface BlenderStatus {
   enabled: boolean;

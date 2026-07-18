@@ -2,6 +2,7 @@ import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
 import type { CSSProperties } from 'react';
 import { useSceneProject } from '../state/useSceneProject';
 import { StatusBar } from './StatusBar';
+import { Logo } from './Logo';
 import { ModelGenerationScreen } from '../screens/ModelGenerationScreen';
 import { VideoGenerationScreen } from '../screens/VideoGenerationScreen';
 import { ExportScreen } from '../screens/ExportScreen';
@@ -73,17 +74,23 @@ export function App() {
 
 function TopNav() {
   return (
-    <nav style={styles.nav} aria-label="Screens">
-      <NavLink to="/model" style={navLinkStyle}>
-        Model
-      </NavLink>
-      <NavLink to="/video" style={navLinkStyle}>
-        Video
-      </NavLink>
-      <NavLink to="/export" style={navLinkStyle}>
-        Export
-      </NavLink>
-    </nav>
+    <div style={styles.navWrap}>
+      <div style={styles.brand}>
+        <Logo />
+        <span style={styles.brandName}>Zendai</span>
+      </div>
+      <nav style={styles.nav} aria-label="Screens">
+        <NavLink to="/model" style={navLinkStyle}>
+          Model
+        </NavLink>
+        <NavLink to="/video" style={navLinkStyle}>
+          Video
+        </NavLink>
+        <NavLink to="/export" style={navLinkStyle}>
+          Export
+        </NavLink>
+      </nav>
+    </div>
   );
 }
 
@@ -101,13 +108,29 @@ function navLinkStyle({ isActive }: { isActive: boolean }): CSSProperties {
 }
 
 const styles = {
-  nav: {
+  navWrap: {
     display: 'flex',
-    gap: 6,
-    padding: '6px 14px',
+    flexDirection: 'column',
     background: 'var(--bg-panel)',
     borderBottom: '1px solid var(--border)',
     flexShrink: 0,
+  },
+  brand: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '12px 14px 8px',
+    color: 'var(--text)',
+  },
+  brandName: {
+    fontSize: 14,
+    fontWeight: 600,
+    letterSpacing: '0.01em',
+  },
+  nav: {
+    display: 'flex',
+    gap: 6,
+    padding: '0 14px 8px',
   },
   outlet: {
     flex: 1,

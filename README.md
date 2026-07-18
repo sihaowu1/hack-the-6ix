@@ -1,4 +1,4 @@
-# MotionForge
+# Zendai
 
 AI-powered, **code-based** 3D generation and video-editing system. A prompt
 goes to an AI agent that writes a Three.js/WebGL scene module and a matching
@@ -191,7 +191,7 @@ The **Export code (.zip)** button (`web/src/export/ExportPanel.tsx`) posts to
 `POST /api/export/code`, handled by `server/src/export/codeExport.ts` +
 `exportTemplates.ts`, which streams a ZIP containing the Three.js module, the
 Blender script, and a minimal runnable HTML/package wrapper for the Three.js
-side so the exported project runs standalone outside MotionForge.
+side so the exported project runs standalone outside Zendai.
 
 ## Generating and exporting an MP4 with Remotion
 

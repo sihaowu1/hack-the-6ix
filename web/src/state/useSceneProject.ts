@@ -218,8 +218,8 @@ export function useSceneProject() {
     () =>
       run('Exporting code…', async () => {
         const blob = await api.exportCodeZip(code, blenderCode);
-        downloadBlob(blob, 'motionforge-scene.zip');
-        setStatus({ kind: 'info', text: 'Project exported as motionforge-scene.zip.' });
+        downloadBlob(blob, 'zendai-scene.zip');
+        setStatus({ kind: 'info', text: 'Project exported as zendai-scene.zip.' });
       }),
     [run, code, blenderCode],
   );

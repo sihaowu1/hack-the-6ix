@@ -15,7 +15,7 @@ export interface SceneTemplateOptions {
 
 export function buildThreeSceneCode(options: SceneTemplateOptions): string {
   return `// ${options.title}
-// MotionForge scene module — edit freely; tunable params drive the sliders.
+// Zendai scene module — edit freely; tunable params drive the sliders.
 
 export const PARAMS = {
   /**
@@ -148,8 +148,8 @@ export interface BlenderTemplateOptions {
 export function buildBlenderSceneCode(options: BlenderTemplateOptions): string {
   const rgb = options.bodyColorRgb.map((c) => c.toFixed(3)).join(', ');
   return `# ${options.title}
-# MotionForge Blender scene script — runnable as-is inside Blender
-# (via the MotionForge bridge add-on / MCP, or Blender's Text Editor).
+# Zendai Blender scene script — runnable as-is inside Blender
+# (via the Zendai bridge add-on / MCP, or Blender's Text Editor).
 import bpy
 import math
 
@@ -223,7 +223,7 @@ def animate(body):
 clear_scene()
 body = build_scene()
 animate(body)
-print("MotionForge scene built: " + body.name)
+print("Zendai scene built: " + body.name)
 `;
 }
 

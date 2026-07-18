@@ -1,4 +1,4 @@
-# MotionForge — Build Plan
+# Zendai — Build Plan
 
 AI-powered, code-based 3D generation and video-editing system (hackathon build).
 

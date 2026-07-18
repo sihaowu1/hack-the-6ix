@@ -17,7 +17,7 @@ const defaultProps: z.infer<typeof scenePropsSchema> = {
 };
 
 /**
- * Registers the single composition the MotionForge renderer targets
+ * Registers the single composition the Zendai renderer targets
  * (server/src/remotion/renderer.ts calls selectComposition/renderMedia with
  * id "GeneratedScene" and these same inputProps). calculateMetadata resolves
  * duration/fps/size from the props sent by the MP4 export job, so one

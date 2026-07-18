@@ -32,8 +32,8 @@ export function BlenderPanel({ status, busy, onSync, onAgent }: Props) {
       )}
       {enabled && !connected && (
         <p className="hint">
-          Enabled but not connected — start the MotionForge bridge in Blender (N-panel →
-          MotionForge → Start bridge).
+          Enabled but not connected — start the Zendai bridge in Blender (N-panel →
+          Zendai → Start bridge).
         </p>
       )}
       {connected && <p className="hint">Connected. Tools: {status?.tools.join(', ')}</p>}

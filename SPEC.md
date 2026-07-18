@@ -1,4 +1,4 @@
-# MotionForge v2 — Spec
+# Zendai v2 — Spec
 
 ## Frontend bug fixes (current build)
 

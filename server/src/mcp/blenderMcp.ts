@@ -6,7 +6,7 @@ import { log, warn } from '../utils/logger';
 
 /**
  * MCP client for Blender. Spawns the Python MCP server (blender/mcp/server.py)
- * over stdio; that server forwards tool calls to the MotionForge bridge add-on
+ * over stdio; that server forwards tool calls to the Zendai bridge add-on
  * running inside Blender over a local TCP socket.
  */
 
@@ -34,7 +34,7 @@ async function connect(): Promise<Client | null> {
         MOTIONFORGE_BRIDGE_PORT: String(config.blender.mcp.bridgePort),
       },
     });
-    const client = new Client({ name: 'motionforge-server', version: '0.1.0' });
+    const client = new Client({ name: 'zendai-server', version: '0.1.0' });
     await client.connect(transport);
     log('mcp', 'connected to the Blender MCP server');
     return client;

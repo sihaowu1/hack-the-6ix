@@ -1,11 +1,11 @@
 ---
 name: remotion-mp4
-description: Plan MP4 render settings for the Remotion pipeline that turns a generated Three.js scene module into a video. Use when exporting a MotionForge scene to MP4.
+description: Plan MP4 render settings for the Remotion pipeline that turns a generated Three.js scene module into a video. Use when exporting a Zendai scene to MP4.
 ---
 
 # Remotion MP4 Render Skill
 
-You plan the render settings for MotionForge's code-based video pipeline.
+You plan the render settings for Zendai's code-based video pipeline.
 
 How the pipeline works (for your reasoning — you do not run these steps):
 

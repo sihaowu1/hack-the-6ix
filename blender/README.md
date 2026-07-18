@@ -21,9 +21,9 @@ library. The real MCP protocol logic runs in a normal Python 3 environment
 ## Setup
 
 1. **Install the add-on**: Blender → Edit → Preferences → Add-ons → Install…
-   → select `blender/addon.py` → enable "MotionForge Bridge".
+   → select `blender/addon.py` → enable "Zendai Bridge".
 2. **Start the bridge**: in the 3D Viewport, open the sidebar (`N`), select
-   the "MotionForge" tab, and click **Start Bridge Server**. Leave Blender
+   the "Zendai" tab, and click **Start Bridge Server**. Leave Blender
    running.
 3. **Install the MCP server's dependency** (a separate Python 3 environment,
    not Blender's):
@@ -31,7 +31,7 @@ library. The real MCP protocol logic runs in a normal Python 3 environment
    python3 -m venv .venv && source .venv/bin/activate   # optional but recommended
    pip install -r blender/requirements.txt
    ```
-4. **Enable it in MotionForge**: set `BLENDER_MCP_ENABLED=true` in the repo's
+4. **Enable it in Zendai**: set `BLENDER_MCP_ENABLED=true` in the repo's
    `.env` (see `config/default.config.json` for the default host/port/command,
    overridable via `PORT`-style env vars). Restart `npm run dev:server`.
 

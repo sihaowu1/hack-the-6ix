@@ -1,8 +1,8 @@
 """
-MotionForge Bridge — a Blender add-on that opens a local TCP socket so the
-MotionForge MCP server (blender/mcp/server.py) can drive this Blender
+Zendai Bridge — a Blender add-on that opens a local TCP socket so the
+Zendai MCP server (blender/mcp/server.py) can drive this Blender
 instance. Install and enable it, then click "Start Bridge Server" in the
-3D Viewport sidebar (N-panel) under the "MotionForge" tab.
+3D Viewport sidebar (N-panel) under the "Zendai" tab.
 
 Protocol: newline-delimited JSON on both directions.
   request:  {"type": "execute_code", "code": "..."}
@@ -16,12 +16,12 @@ through a queue drained by a bpy.app.timers callback.
 """
 
 bl_info = {
-    "name": "MotionForge Bridge",
-    "author": "MotionForge",
+    "name": "Zendai Bridge",
+    "author": "Zendai",
     "version": (0, 1, 0),
     "blender": (3, 6, 0),
-    "location": "View3D > Sidebar > MotionForge",
-    "description": "TCP bridge that lets the MotionForge MCP server drive Blender",
+    "location": "View3D > Sidebar > Zendai",
+    "description": "TCP bridge that lets the Zendai MCP server drive Blender",
     "category": "Development",
 }
 
@@ -38,7 +38,7 @@ _running = False
 _command_queue = queue.Queue()
 
 
-class MotionForgeServer:
+class ZendaiServer:
     def __init__(self, host, port):
         self.host = host
         self.port = port
@@ -142,7 +142,7 @@ def execute_command(request):
 
 
 def run_execute_code(code):
-    exec(compile(code, "<motionforge>", "exec"), {"bpy": bpy}, {})
+    exec(compile(code, "<zendai>", "exec"), {"bpy": bpy}, {})
 
 
 def run_get_scene_info():
@@ -162,19 +162,19 @@ def run_get_scene_info():
 def run_render_frame(frame):
     scene = bpy.context.scene
     scene.frame_set(int(frame))
-    output_path = bpy.path.abspath(f"//motionforge_preview_{int(frame):04d}.png")
+    output_path = bpy.path.abspath(f"//zendai_preview_{int(frame):04d}.png")
     scene.render.filepath = output_path
     bpy.ops.render.render(write_still=True)
     return {"path": output_path}
 
 
-class MotionForgeProperties(bpy.types.PropertyGroup):
+class ZendaiProperties(bpy.types.PropertyGroup):
     host: bpy.props.StringProperty(name="Host", default="127.0.0.1")
     port: bpy.props.IntProperty(name="Port", default=9876, min=1024, max=65535)
 
 
 class MOTIONFORGE_OT_start_server(bpy.types.Operator):
-    bl_idname = "motionforge.start_server"
+    bl_idname = "zendai.start_server"
     bl_label = "Start Bridge Server"
 
     def execute(self, context):
@@ -182,18 +182,18 @@ class MOTIONFORGE_OT_start_server(bpy.types.Operator):
         if _server is not None and _server.running:
             self.report({"INFO"}, "Bridge server already running")
             return {"CANCELLED"}
-        props = context.scene.motionforge
-        _server = MotionForgeServer(props.host, props.port)
+        props = context.scene.zendai
+        _server = ZendaiServer(props.host, props.port)
         _server.start()
         _running = True
         if not bpy.app.timers.is_registered(process_queue):
             bpy.app.timers.register(process_queue, persistent=True)
-        self.report({"INFO"}, f"MotionForge bridge listening on {props.host}:{props.port}")
+        self.report({"INFO"}, f"Zendai bridge listening on {props.host}:{props.port}")
         return {"FINISHED"}
 
 
 class MOTIONFORGE_OT_stop_server(bpy.types.Operator):
-    bl_idname = "motionforge.stop_server"
+    bl_idname = "zendai.stop_server"
     bl_label = "Stop Bridge Server"
 
     def execute(self, context):
@@ -202,31 +202,31 @@ class MOTIONFORGE_OT_stop_server(bpy.types.Operator):
         if _server is not None:
             _server.stop()
             _server = None
-        self.report({"INFO"}, "MotionForge bridge stopped")
+        self.report({"INFO"}, "Zendai bridge stopped")
         return {"FINISHED"}
 
 
 class MOTIONFORGE_PT_panel(bpy.types.Panel):
     bl_idname = "MOTIONFORGE_PT_panel"
-    bl_label = "MotionForge Bridge"
+    bl_label = "Zendai Bridge"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "MotionForge"
+    bl_category = "Zendai"
 
     def draw(self, context):
         layout = self.layout
-        props = context.scene.motionforge
+        props = context.scene.zendai
         layout.prop(props, "host")
         layout.prop(props, "port")
         running = _server is not None and _server.running
         layout.label(text=f"Status: {'running' if running else 'stopped'}")
         row = layout.row(align=True)
-        row.operator("motionforge.start_server", icon="PLAY")
-        row.operator("motionforge.stop_server", icon="PAUSE")
+        row.operator("zendai.start_server", icon="PLAY")
+        row.operator("zendai.stop_server", icon="PAUSE")
 
 
 classes = (
-    MotionForgeProperties,
+    ZendaiProperties,
     MOTIONFORGE_OT_start_server,
     MOTIONFORGE_OT_stop_server,
     MOTIONFORGE_PT_panel,
@@ -236,7 +236,7 @@ classes = (
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
-    bpy.types.Scene.motionforge = bpy.props.PointerProperty(type=MotionForgeProperties)
+    bpy.types.Scene.zendai = bpy.props.PointerProperty(type=ZendaiProperties)
 
 
 def unregister():
@@ -245,7 +245,7 @@ def unregister():
     if _server is not None:
         _server.stop()
         _server = None
-    del bpy.types.Scene.motionforge
+    del bpy.types.Scene.zendai
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
 

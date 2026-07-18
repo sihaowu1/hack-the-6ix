@@ -1,6 +1,6 @@
 ---
 name: scene-generation
-description: Generate and modify parametric 3D scenes as code. Produces a Three.js scene module with tunable, annotated parameters plus a matching Blender Python script from a natural-language prompt. Use whenever creating or editing 3D models, scenes, or animations in MotionForge.
+description: Generate and modify parametric 3D scenes as code. Produces a Three.js scene module with tunable, annotated parameters plus a matching Blender Python script from a natural-language prompt. Use whenever creating or editing 3D models, scenes, or animations in Zendai.
 ---
 
 # 3D Scene Generation Skill
