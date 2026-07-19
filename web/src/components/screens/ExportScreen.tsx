@@ -160,25 +160,30 @@ export function ExportScreen({
     () =>
       models
         .filter((m) => m.code.trim())
-        .map((m) => ({
-          id: m.id,
-          name: m.name,
-          code: m.code,
-          animation: m.animation?.code.trim()
-            ? {
-                id: m.animation.id,
-                name: m.animation.name,
-                code: m.animation.code,
-                duration: m.animation.duration,
-                parts: m.animation.parts,
-              }
-            : undefined,
-        })),
+        .map((m) => {
+          // GitHub layout still stores one animation copy per model slug;
+          // push the first library entry (or omit when empty).
+          const anim = m.animations[0];
+          return {
+            id: m.id,
+            name: m.name,
+            code: m.code,
+            animation: anim?.code.trim()
+              ? {
+                  id: anim.id,
+                  name: anim.name,
+                  code: anim.code,
+                  duration: anim.duration,
+                  parts: anim.parts,
+                }
+              : undefined,
+          };
+        }),
     [models],
   );
   const githubAnimationCount = useMemo(
-    () => githubModels.filter((m) => m.animation).length,
-    [githubModels],
+    () => models.reduce((n, m) => n + m.animations.length, 0),
+    [models],
   );
   const canPushGithub = githubModels.length > 0;
 

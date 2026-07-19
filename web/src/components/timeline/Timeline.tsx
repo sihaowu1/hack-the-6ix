@@ -13,8 +13,30 @@ import { IconButton } from '../ui/Button';
 export type { TimelineClip, TimelineLane } from './timelineMath';
 export { deriveTimelineTotal, partLaneId } from './timelineMath';
 
-/** Drag-and-drop MIME type used to carry a model id onto the timeline (and the video preview). */
-export const MODEL_DRAG_TYPE = 'application/x-motionforge-model-id';
+/** Drag-and-drop MIME type used to carry an animation onto the timeline / video preview. */
+export const ANIMATION_DRAG_TYPE = 'application/x-motionforge-animation';
+
+export interface AnimationDragPayload {
+  modelId: string;
+  animationId: string;
+}
+
+export function encodeAnimationDrag(payload: AnimationDragPayload): string {
+  return JSON.stringify(payload);
+}
+
+export function decodeAnimationDrag(raw: string): AnimationDragPayload | null {
+  if (!raw.trim()) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<AnimationDragPayload>;
+    if (typeof parsed.modelId === 'string' && typeof parsed.animationId === 'string') {
+      return { modelId: parsed.modelId, animationId: parsed.animationId };
+    }
+  } catch {
+    // ignore malformed payloads
+  }
+  return null;
+}
 
 export interface TimelineModelOption {
   id: string;
@@ -31,8 +53,8 @@ export interface TimelineProps {
   totalDuration?: number;
   /** Shared playhead state/controls from `useTimelinePlayback`. */
   playback: TimelinePlayback;
-  /** Drops a material at the given whole second, dropped from the Materials list onto the track. */
-  onDropModel?: (modelId: string, second: number) => void;
+  /** Drops an animation at the given whole second (from the Animations list). */
+  onDropAnimation?: (modelId: string, animationId: string, second: number) => void;
   /** Deletes a clip (right-click menu → Delete). Omit to disable the context menu entirely. */
   onDeleteClip?: (clipId: string) => void;
   /** Stashes a clip in the clipboard (right-click menu → Copy). */
@@ -87,7 +109,7 @@ export function Timeline({
   onToggleLane,
   totalDuration,
   playback,
-  onDropModel,
+  onDropAnimation,
   onDeleteClip,
   onCopyClip,
   onPasteClip,
@@ -198,7 +220,7 @@ export function Timeline({
   }
 
   function handleTrackDragOver(event: ReactDragEvent<HTMLDivElement>) {
-    if (!onDropModel || !event.dataTransfer.types.includes(MODEL_DRAG_TYPE)) return;
+    if (!onDropAnimation || !event.dataTransfer.types.includes(ANIMATION_DRAG_TYPE)) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = 'copy';
     setIsDropTarget(true);
@@ -207,10 +229,10 @@ export function Timeline({
   function handleTrackDrop(event: ReactDragEvent<HTMLDivElement>) {
     setIsDropTarget(false);
     event.preventDefault();
-    if (!onDropModel) return;
-    const modelId = event.dataTransfer.getData(MODEL_DRAG_TYPE);
-    if (!modelId) return;
-    onDropModel(modelId, timeAtClientX(event.clientX));
+    if (!onDropAnimation) return;
+    const payload = decodeAnimationDrag(event.dataTransfer.getData(ANIMATION_DRAG_TYPE));
+    if (!payload) return;
+    onDropAnimation(payload.modelId, payload.animationId, timeAtClientX(event.clientX));
   }
 
   function handleTrackContextMenu(event: ReactMouseEvent<HTMLDivElement>) {

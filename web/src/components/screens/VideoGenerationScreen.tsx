@@ -5,10 +5,15 @@ import type { ParamChange } from '../controls/ControlsPanel';
 import { AspectRatioBox } from '../layout/AspectRatioBox';
 import { ResizeHandle } from '../layout/ResizeHandle';
 import { useResizable } from '../layout/useResizable';
-import { MODEL_DRAG_TYPE, Timeline } from '../timeline/Timeline';
+import {
+  ANIMATION_DRAG_TYPE,
+  Timeline,
+  encodeAnimationDrag,
+  decodeAnimationDrag,
+} from '../timeline/Timeline';
 import type { TimelineClip, TimelineLane } from '../timeline/timelineMath';
 import type { TimelinePlayback } from '../timeline/useTimelinePlayback';
-import type { Mp4JobState, SceneModel } from '../../state/useSceneProject';
+import type { Mp4JobState, SceneModel, AnimationInstance } from '../../state/useSceneProject';
 import type { TrackOverlay } from '../../viewport/trackOverlay';
 import type { ViewportHandle } from '../../viewport/Viewport';
 import { VideoPreview } from '../VideoPreview';
@@ -29,6 +34,13 @@ export interface VideoGenerationScreenProps {
   tunables: TunableParam[];
   /** Patches a tunable on the active model (from `useSceneProject.setParam`). */
   onParamChange: ParamChange;
+  /**
+   * Copies the Materials-selected model's current PARAMS into its saved
+   * animation clips (from `useSceneProject.updateAnimationModel`).
+   */
+  onUpdateAnimationModel: () => void;
+  /** True when the active model has at least one saved animation to update. */
+  canUpdateAnimationModel: boolean;
   /** Current MP4 render job from `useSceneProject.mp4Job`. */
   mp4Job: Mp4JobState | null;
   /** Timeline clips (from `useSceneProject.timelineClips`), rendered in the bottom row. */
@@ -56,13 +68,16 @@ export interface VideoGenerationScreenProps {
   /** Display name for whatever's under the playhead (from `useSceneProject.previewModelName`). */
   previewModelName: string;
   /**
-   * Drops a material onto the video preview: places a clip for
-   * `modelId` at whole-second `second` (from `useSceneProject.addClipAtSecond`).
+   * Drops an animation onto the video preview: places a clip for that
+   * animation at whole-second `second` (from `useSceneProject.addClipAtSecond`).
    */
-  onDropModel: (modelId: string, second: number) => void;
+  onDropAnimation: (modelId: string, animationId: string, second: number) => void;
   /** Selects a material as the animation / edit target (from `useSceneProject.setActiveModel`). */
   activeModelId: string;
   onSelectModel: (id: string) => void;
+  /** Selected animation in the active model's library (Modify target). */
+  activeAnimationId: string | null;
+  onSelectAnimation: (id: string) => void;
   /** Deletes a clip, from the timeline's right-click menu (from `useSceneProject.deleteClip`). */
   onDeleteClip: (clipId: string) => void;
   /** Stashes a clip in the clipboard, from the timeline's right-click menu (from `useSceneProject.copyClip`). */
@@ -84,11 +99,11 @@ export interface VideoGenerationScreenProps {
 /**
  * Screen 2 — Video Generation.
  *
- *   +------+-----------+------------------+
- *   | Chat | Materials | Resulting Video  |
- *   +------+-----------+------------------+
- *   |         Timeline (full width)       |
- *   +-------------------------------------+
+ *   +------+-----------+------------------+-------------+
+ *   | Chat | Materials | Resulting Video  | Animations  |
+ *   +------+-----------+------------------+-------------+
+ *   |         Timeline (full width)                     |
+ *   +---------------------------------------------------+
  */
 export function VideoGenerationScreen({
   models,
@@ -96,6 +111,8 @@ export function VideoGenerationScreen({
   onAspectRatioChange,
   tunables,
   onParamChange,
+  onUpdateAnimationModel,
+  canUpdateAnimationModel,
   mp4Job,
   timelineClips,
   timelineLanes,
@@ -110,9 +127,11 @@ export function VideoGenerationScreen({
   previewTime,
   previewTrackOverlays,
   previewModelName,
-  onDropModel,
+  onDropAnimation,
   activeModelId,
   onSelectModel,
+  activeAnimationId,
+  onSelectAnimation,
   onDeleteClip,
   onCopyClip,
   onPasteClip,
@@ -132,6 +151,12 @@ export function VideoGenerationScreen({
     [models],
   );
 
+  const activeModel = useMemo(
+    () => models.find((m) => m.id === activeModelId) ?? models[0],
+    [models, activeModelId],
+  );
+  const modelAnimations = activeModel?.animations ?? [];
+
   useEffect(() => {
     videoPreviewRef.current?.setAxesVisible(axesVisible);
   }, [axesVisible, previewCode]);
@@ -150,6 +175,14 @@ export function VideoGenerationScreen({
     max: 640,
     storageKey: 'motionforge:video-screen:materials-width',
   });
+  const animationsWidth = useResizable({
+    direction: 'horizontal',
+    initial: 240,
+    min: 180,
+    max: 420,
+    storageKey: 'motionforge:video-screen:animations-width',
+    invert: true,
+  });
   const timelineHeight = useResizable({
     direction: 'vertical',
     initial: 200,
@@ -167,7 +200,7 @@ export function VideoGenerationScreen({
       <div
         className="grid min-h-0 gap-0"
         style={{
-          gridTemplateColumns: `${chatWidth.size}px 1px ${materialsWidth.size}px 1px 1fr`,
+          gridTemplateColumns: `${chatWidth.size}px 1px ${materialsWidth.size}px 1px 1fr 1px ${animationsWidth.size}px`,
         }}
       >
         <div className="flex min-h-0 min-w-0 flex-col bg-bg-panel">
@@ -196,6 +229,10 @@ export function VideoGenerationScreen({
           bodyClassName="overflow-hidden p-0"
           actions={
             <div className="flex items-center gap-1.5">
+              <UpdateModelButton
+                disabled={!canUpdateAnimationModel}
+                onClick={onUpdateAnimationModel}
+              />
               <AxesToggleButton pressed={axesVisible} onToggle={() => setAxesVisible((v) => !v)} />
               <AspectRatioSelect value={aspectRatio} onChange={onAspectRatioChange} />
             </div>
@@ -206,18 +243,18 @@ export function VideoGenerationScreen({
               isDropTarget ? 'shadow-[inset_0_0_0_2px_var(--color-accent)]' : ''
             }`}
             onDragOver={(event) => {
-              if (!event.dataTransfer.types.includes(MODEL_DRAG_TYPE)) return;
+              if (!event.dataTransfer.types.includes(ANIMATION_DRAG_TYPE)) return;
               event.preventDefault();
               event.dataTransfer.dropEffect = 'copy';
               setIsDropTarget(true);
             }}
             onDragLeave={() => setIsDropTarget(false)}
             onDrop={(event) => {
-              const modelId = event.dataTransfer.getData(MODEL_DRAG_TYPE);
+              const payload = decodeAnimationDrag(event.dataTransfer.getData(ANIMATION_DRAG_TYPE));
               setIsDropTarget(false);
-              if (!modelId) return;
+              if (!payload) return;
               event.preventDefault();
-              onDropModel(modelId, playback.currentTime);
+              onDropAnimation(payload.modelId, payload.animationId, playback.currentTime);
             }}
           >
             <AspectRatioBox ratio={aspectRatioValue(aspectRatio)}>
@@ -245,6 +282,29 @@ export function VideoGenerationScreen({
             )}
           </div>
         </Pane>
+        <ResizeHandle
+          direction="horizontal"
+          onPointerDown={animationsWidth.startDragging}
+          label="Resize animations panel"
+        />
+        <div className="flex min-h-0 min-w-0 flex-col bg-bg-panel">
+          <section className="flex min-h-0 flex-1 flex-col gap-2 p-3" aria-label="Animations">
+            <h2 className={`flex-shrink-0 ${PANEL_HEADER}`}>Animations</h2>
+            <p className="m-0 flex-shrink-0 text-[12px] leading-snug text-text-faint">
+              {activeModel
+                ? `Library for “${activeModel.name}”. Drag onto the preview or timeline; Modify edits the selected clip only.`
+                : 'Select a model in Materials.'}
+            </p>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <AnimationsList
+                modelId={activeModel?.id ?? ''}
+                animations={modelAnimations}
+                activeAnimationId={activeAnimationId}
+                onSelectAnimation={onSelectAnimation}
+              />
+            </div>
+          </section>
+        </div>
       </div>
       <ResizeHandle direction="vertical" onPointerDown={timelineHeight.startDragging} label="Resize timeline" />
       <div className="flex min-h-0">
@@ -256,7 +316,7 @@ export function VideoGenerationScreen({
             onToggleLane={onToggleLane}
             totalDuration={timelineTotal}
             playback={playback}
-            onDropModel={onDropModel}
+            onDropAnimation={onDropAnimation}
             onDeleteClip={onDeleteClip}
             onCopyClip={onCopyClip}
             onPasteClip={onPasteClip}
@@ -279,8 +339,7 @@ function formatDropSecond(time: number): number {
 
 /**
  * List of models for the video screen.
- * Click selects the animation/edit target; drag onto the preview/timeline
- * places a clip (`MODEL_DRAG_TYPE`).
+ * Click selects the model whose animation library is shown on the right.
  */
 function MaterialsList({
   models,
@@ -303,22 +362,16 @@ function MaterialsList({
       {models.map((m) => {
         const isActive = m.id === activeModelId;
         return (
-          <li
-            key={m.id}
-            className={`overflow-hidden rounded-lg border border-border ${
-              isActive ? 'bg-bg-hover' : 'bg-bg-raised'
-            }`}
-          >
-            <div
-              className={`flex cursor-grab items-center gap-2 px-2.5 py-2 ${
-                isActive ? 'text-accent' : 'text-text'
+          <li key={m.id}>
+            <button
+              type="button"
+              className={`flex w-full cursor-pointer items-center gap-2 rounded-lg border border-border px-2.5 py-2 text-left transition-colors ${
+                isActive
+                  ? 'bg-bg-hover text-accent'
+                  : 'bg-bg-raised text-text hover:bg-bg-hover'
               }`}
-              draggable
               onClick={() => onSelectModel(m.id)}
-              onDragStart={(event) => {
-                event.dataTransfer.setData(MODEL_DRAG_TYPE, m.id);
-                event.dataTransfer.effectAllowed = 'copy';
-              }}
+              aria-pressed={isActive}
             >
               <span
                 className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[13px] font-medium"
@@ -328,6 +381,75 @@ function MaterialsList({
                 {m.children?.length ? (
                   <span className="ml-1.5 font-normal text-text-dim">· merge</span>
                 ) : null}
+                {m.animations.length > 0 ? (
+                  <span className="ml-1.5 font-normal text-text-dim">
+                    · {m.animations.length} anim
+                    {m.animations.length === 1 ? '' : 's'}
+                  </span>
+                ) : null}
+              </span>
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/**
+ * Animation library for the Materials-selected model.
+ * Drag onto the preview/timeline to place a clip; click selects the Modify target.
+ */
+function AnimationsList({
+  modelId,
+  animations,
+  activeAnimationId,
+  onSelectAnimation,
+}: {
+  modelId: string;
+  animations: AnimationInstance[];
+  activeAnimationId: string | null;
+  onSelectAnimation: (id: string) => void;
+}) {
+  if (!modelId || animations.length === 0) {
+    return (
+      <p className="m-0 text-[13px] leading-normal text-text-faint">
+        No animations yet. Use Animate in chat to add one for this model.
+      </p>
+    );
+  }
+  return (
+    <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
+      {animations.map((anim) => {
+        const isActive = anim.id === activeAnimationId;
+        const durationLabel = anim.duration.toFixed(anim.duration % 1 === 0 ? 0 : 1);
+        return (
+          <li
+            key={anim.id}
+            className={`overflow-hidden rounded-lg border border-border ${
+              isActive ? 'bg-bg-hover' : 'bg-bg-raised'
+            }`}
+          >
+            <div
+              className={`flex cursor-grab items-center gap-2 px-2.5 py-2 active:cursor-grabbing ${
+                isActive ? 'text-accent' : 'text-text'
+              }`}
+              draggable
+              onClick={() => onSelectAnimation(anim.id)}
+              onDragStart={(event) => {
+                onSelectAnimation(anim.id);
+                event.dataTransfer.setData(
+                  ANIMATION_DRAG_TYPE,
+                  encodeAnimationDrag({ modelId, animationId: anim.id }),
+                );
+                event.dataTransfer.effectAllowed = 'copy';
+              }}
+            >
+              <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[13px] font-medium">
+                {anim.name}
+              </span>
+              <span className="flex-shrink-0 text-[11px] font-normal text-text-dim">
+                {durationLabel}s
               </span>
             </div>
           </li>
@@ -384,6 +506,29 @@ function AspectRatioSelect({
         </option>
       ))}
     </select>
+  );
+}
+
+/** Copies current base-model PARAMS into saved animation clips for the Materials selection. */
+function UpdateModelButton({ disabled, onClick }: { disabled: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      className={`rounded border px-1.5 py-0.5 text-[11px] font-medium normal-case tracking-normal transition-colors ${
+        disabled
+          ? 'cursor-not-allowed border-border bg-bg text-text-dim opacity-50'
+          : 'border-border bg-bg text-text hover:bg-bg-raised'
+      }`}
+      disabled={disabled}
+      title={
+        disabled
+          ? 'Animate this model first to create a clip you can update'
+          : 'Apply current model colors and sliders to saved animations'
+      }
+      onClick={onClick}
+    >
+      Update Model
+    </button>
   );
 }
 

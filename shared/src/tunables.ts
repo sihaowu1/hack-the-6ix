@@ -83,6 +83,19 @@ export function patchParam(code: string, name: string, value: number | boolean |
   return code.slice(0, block.start) + patched + code.slice(block.end);
 }
 
+/**
+ * Copies the entire PARAMS object body from `fromCode` into `toCode`.
+ * Used to rebase a saved animation onto the current base model's colors/sliders
+ * without touching ANIMATION / motion in updateScene.
+ */
+export function copyParamsBlock(fromCode: string, toCode: string): string {
+  const from = extractParamsBlock(fromCode);
+  const to = extractParamsBlock(toCode);
+  if (!from || !to) return toCode;
+  if (from.body === to.body) return toCode;
+  return toCode.slice(0, to.start) + from.body + toCode.slice(to.end);
+}
+
 function parseValue(raw: string): ParsedValue | null {
   if (raw === 'true') return { type: 'boolean', value: true };
   if (raw === 'false') return { type: 'boolean', value: false };

@@ -40,6 +40,11 @@ export function App() {
                 onAspectRatioChange={project.setAspectRatio}
                 tunables={project.tunables}
                 onParamChange={project.setParam}
+                onUpdateAnimationModel={project.updateAnimationModel}
+                canUpdateAnimationModel={
+                  (project.models.find((m) => m.id === project.activeModelId)?.animations.length ??
+                    0) > 0
+                }
                 mp4Job={project.mp4Job}
                 timelineClips={project.timelineClips}
                 timelineLanes={project.timelineLanes}
@@ -54,9 +59,13 @@ export function App() {
                 previewTime={project.previewTime}
                 previewTrackOverlays={project.previewTrackOverlays}
                 previewModelName={project.previewModelName}
-                onDropModel={project.addClipAtSecond}
+                onDropAnimation={(modelId, animationId, second) =>
+                  project.addClipAtSecond(modelId, second, animationId)
+                }
                 activeModelId={project.activeModelId}
                 onSelectModel={project.setActiveModel}
+                activeAnimationId={project.activeAnimationId}
+                onSelectAnimation={project.setActiveAnimation}
                 onDeleteClip={project.deleteClip}
                 onCopyClip={project.copyClip}
                 onPasteClip={project.pasteClip}
@@ -75,8 +84,8 @@ export function App() {
                     allowImageAttachment={false}
                     generateLabel="Animate"
                     modifyLabel="Modify"
-                    placeholder="Describe new motion, or how to change the current animation…"
-                    emptyHint="Select a model in Materials. Animate creates a new clip from the base model; Modify edits the existing animation in place. Orbit the preview to frame the shot."
+                    placeholder="Describe new motion, or how to change the selected animation…"
+                    emptyHint="Select a model in Materials, then drag an animation from the right onto the preview or timeline. Animate adds a new clip; Modify edits only the selected animation."
                   />
                 }
               />

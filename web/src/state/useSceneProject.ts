@@ -14,6 +14,7 @@ import {
   parseAnimationTracks,
   parseTunables,
   patchParam,
+  copyParamsBlock,
   renameLayer as renameLayerInCode,
   type AspectRatio,
   type CameraSpec,
@@ -36,8 +37,9 @@ import type { TrackOverlay } from '../viewport/trackOverlay';
 /**
  * All editor state in one hook.
  *
- * Each model may hold one animation duplicate (`animation`) so motion never
- * mutates the frozen base `code`. Merges are real fused modules (`code` is one
+ * Each model holds an animation library (`animations[]`) so motion never
+ * mutates the frozen base `code`. Animate appends a duplicate; Modify edits
+ * only the selected entry. Merges are real fused modules (`code` is one
  * scene on a shared plane); `children` hold independent code snapshots for
  * hierarchy UI and re-fuse — not live links to the source models.
  */
@@ -86,10 +88,11 @@ export interface SceneModel {
    */
   children?: MergeChild[];
   /**
-   * The one animated duplicate for this model. Regenerating replaces it;
-   * the base `code` stays frozen.
+   * Animation library for this model. Each entry is a duplicated animated
+   * module; the base `code` stays frozen. Animate appends; Modify edits
+   * the selected entry only (`activeAnimationId` in the project hook).
    */
-  animation?: AnimationInstance;
+  animations: AnimationInstance[];
   /**
    * When set, this row is a statically-imported GLB/glTF asset (e.g. a
    * Blender export) rather than AI-generated code. `code` stays a valid
@@ -121,7 +124,40 @@ function makeDefaultModel(): SceneModel {
     name: 'Default model',
     code: DEFAULT_SCENE_CODE,
     createdAt: Date.now(),
+    animations: [],
   };
+}
+
+/** Look up an animation on a model by id. */
+function findAnimation(
+  model: SceneModel | undefined,
+  animationId: string | null | undefined,
+): AnimationInstance | undefined {
+  if (!model || !animationId) return undefined;
+  return model.animations.find((a) => a.id === animationId);
+}
+
+/**
+ * Normalize persisted / remote models: migrate legacy singular `animation`
+ * into `animations[]`, and ensure the array always exists.
+ */
+function normalizeModel(
+  raw: SceneModel & { animation?: AnimationInstance },
+): SceneModel {
+  const legacy = (raw as { animation?: AnimationInstance }).animation;
+  const { animation: _legacy, ...rest } = raw as SceneModel & {
+    animation?: AnimationInstance;
+  };
+  void _legacy;
+  const list =
+    Array.isArray(rest.animations) && rest.animations.length > 0
+      ? rest.animations
+      : legacy
+        ? [legacy]
+        : Array.isArray(rest.animations)
+          ? rest.animations
+          : [];
+  return { ...rest, animations: list };
 }
 
 function makeId(): string {
@@ -212,8 +248,8 @@ function loadPersistedModels(): SceneModel[] {
   try {
     const raw = localStorage.getItem(MODELS_STORAGE_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw) as SceneModel[];
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      const parsed = JSON.parse(raw) as Array<SceneModel & { animation?: AnimationInstance }>;
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed.map(normalizeModel);
     }
   } catch { /* ignore corrupt data */ }
   return [makeDefaultModel()];
@@ -248,6 +284,8 @@ export function useSceneProject() {
   const [clipboardClip, setClipboardClip] = useState<Clip | null>(null);
   const [collapsedLanes, setCollapsedLanes] = useState<Set<string>>(() => new Set());
   const [timelineFocusModelId, setTimelineFocusModelId] = useState<string>(DEFAULT_MODEL_ID);
+  /** Selected animation in the active model's library (Video-screen Modify target). */
+  const [activeAnimationId, setActiveAnimationId] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
   const [mp4Job, setMp4Job] = useState<Mp4JobState | null>(null);
@@ -261,6 +299,15 @@ export function useSceneProject() {
     [models, activeModelId],
   );
   const code = activeModel.code;
+
+  // Keep the selected animation valid for the active model.
+  useEffect(() => {
+    const anims = activeModel.animations;
+    setActiveAnimationId((current) => {
+      if (current && anims.some((a) => a.id === current)) return current;
+      return anims[0]?.id ?? null;
+    });
+  }, [activeModel]);
 
   /** Merges resolve to child scene entries for co-view placement. */
   const viewportScenes = useMemo(
@@ -366,8 +413,7 @@ export function useSceneProject() {
     // pivots or renamed parts only in the animation duplicate.
     const primary = activeClips[0];
     const primaryModel = models.find((m) => m.id === primary.modelId);
-    const primaryAnim =
-      primaryModel?.animation?.id === primary.animationId ? primaryModel.animation : undefined;
+    const primaryAnim = findAnimation(primaryModel, primary.animationId);
     if (primaryAnim) {
       return {
         previewCode: primaryAnim.code,
@@ -380,7 +426,7 @@ export function useSceneProject() {
     const overlays: TrackOverlay[] = [];
     for (const clip of activeClips) {
       const model = models.find((m) => m.id === clip.modelId);
-      const anim = model?.animation?.id === clip.animationId ? model.animation : undefined;
+      const anim = findAnimation(model, clip.animationId);
       if (!anim) continue;
       const localTime = playback.currentTime - clip.start;
       const tracks = parseAnimationTracks(anim.code).filter(
@@ -450,6 +496,7 @@ export function useSceneProject() {
             name: result.title || nameFromPrompt(prompt, current.length + 1),
             code: result.code,
             createdAt: Date.now(),
+            animations: [],
           },
         ]);
         setActiveModelId(id);
@@ -474,15 +521,26 @@ export function useSceneProject() {
         const target = models.find((m) => m.id === targetId) ?? activeModel;
         const result = await api.modify(prompt, target.code, image);
         setModels((current) =>
-          current.map((m) =>
-            m.id === target.id
-              ? {
-                  ...m,
-                  code: result.code,
-                  ...(result.title ? { name: result.title } : {}),
-                }
-              : m,
-          ),
+          current.map((m) => {
+            if (m.id !== target.id) return m;
+            const nextCode = result.code;
+            // Keep saved clips visually in sync with Model-screen AI edits that
+            // only change PARAMS (colors/sizes). Geometry-only animation edits
+            // (pivots / updateScene) stay on the animation duplicate.
+            const animations =
+              m.animations.length === 0
+                ? m.animations
+                : m.animations.map((a) => ({
+                    ...a,
+                    code: copyParamsBlock(nextCode, a.code),
+                  }));
+            return {
+              ...m,
+              code: nextCode,
+              animations,
+              ...(result.title ? { name: result.title } : {}),
+            };
+          }),
         );
         if (target.id !== activeModelId) {
           setActiveModelId(target.id);
@@ -513,9 +571,9 @@ export function useSceneProject() {
 
   /**
    * Video-screen Generate: animate the Materials-selected model.
-   * Writes a duplicated animated module to `animation`; never mutates
-   * the base `model.code` (Model-screen source stays frozen). Regenerating
-   * replaces the single animation for that model.
+   * Appends a duplicated animated module to `animations[]`; never mutates
+   * the base `model.code` (Model-screen source stays frozen). Selects the
+   * new entry so subsequent Modify calls target it.
    */
   const animate = useCallback(
     (prompt: string) =>
@@ -553,20 +611,24 @@ export function useSceneProject() {
         };
 
         setModels((current) =>
-          current.map((m) => (m.id === target.id ? { ...m, animation: instance } : m)),
+          current.map((m) =>
+            m.id === target.id
+              ? { ...m, animations: [...m.animations, instance] }
+              : m,
+          ),
         );
         setActiveModelId(target.id);
         setSelectedModelIds([target.id]);
         setTimelineFocusModelId(target.id);
+        setActiveAnimationId(animationId);
 
         setClips((current) => {
-          const withoutModel = current.filter((c) => c.modelId !== target.id);
           const start =
-            withoutModel.length === 0
+            current.length === 0
               ? 0
-              : Math.ceil(Math.max(...withoutModel.map((c) => c.start + c.duration)));
+              : Math.ceil(Math.max(...current.map((c) => c.start + c.duration)));
           return [
-            ...withoutModel,
+            ...current,
             {
               id: makeId(),
               modelId: target.id,
@@ -588,9 +650,9 @@ export function useSceneProject() {
   );
 
   /**
-   * Video-screen Modify: edit the existing animation duplicate in place.
-   * Sends `animation.code` (not the frozen base). Keeps the same animation id
-   * so timeline clips keep pointing at it; updates duration/label on those clips.
+   * Video-screen Modify: edit the selected animation duplicate in place.
+   * Sends that entry's `code` (not the frozen base). Keeps the same animation
+   * id so timeline clips keep pointing at it; updates duration/label on those clips.
    */
   const modifyAnimation = useCallback(
     (prompt: string) =>
@@ -599,7 +661,9 @@ export function useSceneProject() {
         if (!target) {
           throw new Error('No model available. Generate a model on the Model screen first.');
         }
-        if (!target.animation) {
+        const selected =
+          findAnimation(target, activeAnimationId) ?? target.animations[0];
+        if (!selected) {
           throw new Error('No animation to modify. Use Animate first to create one.');
         }
 
@@ -608,44 +672,53 @@ export function useSceneProject() {
             ? `${prompt}\n\nFocus on part/layer: ${selectedLayer}.`
             : prompt;
 
-        const result = await api.modifyAnimation(focused, target.animation.code);
-        const duration = parseAnimationDuration(result.code) ?? target.animation.duration;
-        const name = parseAnimationName(result.code) ?? target.animation.name;
+        const result = await api.modifyAnimation(focused, selected.code);
+        const duration = parseAnimationDuration(result.code) ?? selected.duration;
+        const name = parseAnimationName(result.code) ?? selected.name;
         const parts = parseAnimationPartNames(result.code);
         const partList =
           parts.length > 0
             ? parts
             : selectedLayer
               ? [selectedLayer]
-              : target.animation.parts;
+              : selected.parts;
 
-        const animationId = target.animation.id;
+        const animationId = selected.id;
         const instance: AnimationInstance = {
           id: animationId,
           name,
           duration,
           code: result.code,
           parts: partList,
-          createdAt: target.animation.createdAt,
+          createdAt: selected.createdAt,
         };
 
         setModels((current) =>
-          current.map((m) => (m.id === target.id ? { ...m, animation: instance } : m)),
+          current.map((m) =>
+            m.id === target.id
+              ? {
+                  ...m,
+                  animations: m.animations.map((a) =>
+                    a.id === animationId ? instance : a,
+                  ),
+                }
+              : m,
+          ),
         );
         setActiveModelId(target.id);
         setSelectedModelIds([target.id]);
         setTimelineFocusModelId(target.id);
+        setActiveAnimationId(animationId);
 
         setClips((current) => {
           const matching = current.filter((c) => c.animationId === animationId);
           if (matching.length === 0) {
-            const withoutModel = current.filter((c) => c.modelId !== target.id);
             const start =
-              withoutModel.length === 0
+              current.length === 0
                 ? 0
-                : Math.ceil(Math.max(...withoutModel.map((c) => c.start + c.duration)));
+                : Math.ceil(Math.max(...current.map((c) => c.start + c.duration)));
             return [
-              ...withoutModel,
+              ...current,
               {
                 id: makeId(),
                 modelId: target.id,
@@ -666,35 +739,73 @@ export function useSceneProject() {
 
         setStatus({
           kind: 'info',
-          text: `Updated animation on “${target.name}” (${duration.toFixed(duration % 1 === 0 ? 0 : 1)}s).`,
+          text: `Updated “${name}” on “${target.name}” (${duration.toFixed(duration % 1 === 0 ? 0 : 1)}s).`,
         });
       }),
-    [run, models, activeModelId, selectedLayer],
+    [run, models, activeModelId, activeAnimationId, selectedLayer],
   );
 
   const setParam = useCallback(
     (name: string, value: number | boolean | string) => {
-      // Patch the frozen base and mirror into the animation duplicate so Video
-      // timeline playback (and any other consumer of animation.code) stays in
-      // sync with Model-screen sliders.
+      // Patch the frozen base and mirror into every animation duplicate so Video
+      // timeline playback stays in sync with Model-screen sliders.
       setModels((current) =>
         current.map((m) => {
           if (m.id !== activeModelId) return m;
           const nextCode = patchParam(m.code, name, value);
-          if (!m.animation) return { ...m, code: nextCode };
+          if (m.animations.length === 0) return { ...m, code: nextCode };
           return {
             ...m,
             code: nextCode,
-            animation: {
-              ...m.animation,
-              code: patchParam(m.animation.code, name, value),
-            },
+            animations: m.animations.map((a) => ({
+              ...a,
+              code: patchParam(a.code, name, value),
+            })),
           };
         }),
       );
     },
     [activeModelId],
   );
+
+  /**
+   * Push the Materials-selected model's current PARAMS (colors / sliders) into
+   * every saved animation duplicate. Use when an older clip still shows a
+   * previous look after the base model was edited on the Model screen.
+   */
+  const updateAnimationModel = useCallback(() => {
+    const target = models.find((m) => m.id === activeModelId);
+    if (!target) {
+      setStatus({ kind: 'error', text: 'No model selected.' });
+      return;
+    }
+    if (target.animations.length === 0) {
+      setStatus({
+        kind: 'error',
+        text: 'No saved animations to update. Animate this model first.',
+      });
+      return;
+    }
+
+    let changed = 0;
+    const nextAnimations = target.animations.map((a) => {
+      const nextCode = copyParamsBlock(target.code, a.code);
+      if (nextCode !== a.code) changed += 1;
+      return nextCode === a.code ? a : { ...a, code: nextCode };
+    });
+
+    setModels((current) =>
+      current.map((m) => (m.id === target.id ? { ...m, animations: nextAnimations } : m)),
+    );
+
+    setStatus({
+      kind: 'info',
+      text:
+        changed > 0
+          ? `Updated ${changed} animation${changed === 1 ? '' : 's'} on “${target.name}” with current model colors/sliders.`
+          : `Animations on “${target.name}” already match the current model PARAMS.`,
+    });
+  }, [models, activeModelId]);
 
   const setActiveModel = useCallback((id: string) => {
     setActiveModelId(id);
@@ -874,6 +985,7 @@ export function useSceneProject() {
           name: name.length > 48 ? `${name.slice(0, 48)}…` : name,
           code: fusedCode,
           createdAt: Date.now(),
+          animations: [],
           children,
         },
       ]);
@@ -920,46 +1032,40 @@ export function useSceneProject() {
   }, []);
 
   const addClipAtSecond = useCallback(
-    (modelId: string, second: number) => {
+    (modelId: string, second: number, animationId?: string) => {
       const model = models.find((m) => m.id === modelId);
       if (!model) return;
       const start = Math.max(0, Math.floor(second));
-      let animation = model.animation;
-      const animationId = animation?.id ?? makeId();
-      const duration = animation?.duration ?? 1;
+      const animation =
+        findAnimation(model, animationId) ??
+        (modelId === activeModelId ? findAnimation(model, activeAnimationId) : undefined) ??
+        model.animations[0];
+      if (!animation) return;
 
-      // Ensure a placeholder animation duplicate exists if the model was dragged without one.
-      if (!animation) {
-        animation = {
-          id: animationId,
-          name: model.name,
-          duration,
-          code: model.code,
-          parts: [WHOLE_PART],
-          createdAt: Date.now(),
-        };
-        setModels((current) =>
-          current.map((m) => (m.id === modelId ? { ...m, animation } : m)),
-        );
-      }
+      setActiveAnimationId(animation.id);
 
       setClips((current) => {
         const next = current.filter(
-          (c) => !(c.modelId === modelId && c.part === WHOLE_PART && clipsOverlap(start, duration, c.start, c.duration)),
+          (c) =>
+            !(
+              c.modelId === modelId &&
+              c.part === WHOLE_PART &&
+              clipsOverlap(start, animation.duration, c.start, c.duration)
+            ),
         );
         next.push({
           id: makeId(),
           modelId,
-          animationId,
+          animationId: animation.id,
           part: WHOLE_PART,
-          label: model.name,
+          label: animation.name,
           start,
-          duration,
+          duration: animation.duration,
         });
         return next.sort((a, b) => a.start - b.start || a.part.localeCompare(b.part));
       });
     },
-    [models],
+    [models, activeModelId, activeAnimationId],
   );
 
   const deleteClip = useCallback((id: string) => {
@@ -1025,6 +1131,7 @@ export function useSceneProject() {
         name: nameFromFileName(file.name),
         code: IMPORTED_MODEL_CODE,
         createdAt: Date.now(),
+        animations: [],
         assetUrl,
       },
     ]);
@@ -1130,6 +1237,13 @@ export function useSceneProject() {
           duration?: number;
           parts?: string[];
         };
+        animations?: Array<{
+          id: string;
+          name: string;
+          code: string;
+          duration?: number;
+          parts?: string[];
+        }>;
       }>,
     ) => {
       if (remote.length === 0) {
@@ -1142,30 +1256,54 @@ export function useSceneProject() {
       }
       const now = Date.now();
       const next: SceneModel[] = remote.map((m) => {
-        const animCode = m.animation?.code?.trim();
-        let animation: AnimationInstance | undefined;
-        if (animCode) {
-          const parsedParts = parseAnimationPartNames(animCode);
-          animation = {
-            id: m.animation!.id || `${m.id}-anim`,
-            name: m.animation!.name || parseAnimationName(animCode) || `${m.name} animation`,
-            duration: m.animation!.duration ?? parseAnimationDuration(animCode) ?? 3,
-            code: animCode,
-            parts:
-              m.animation!.parts && m.animation!.parts.length > 0
-                ? m.animation!.parts
-                : parsedParts.length > 0
-                  ? parsedParts
-                  : [WHOLE_PART],
-            createdAt: now,
-          };
+        const fromList = (m.animations ?? [])
+          .map((a) => {
+            const animCode = a.code?.trim();
+            if (!animCode) return null;
+            const parsedParts = parseAnimationPartNames(animCode);
+            return {
+              id: a.id || `${m.id}-anim-${makeId()}`,
+              name: a.name || parseAnimationName(animCode) || `${m.name} animation`,
+              duration: a.duration ?? parseAnimationDuration(animCode) ?? 3,
+              code: animCode,
+              parts:
+                a.parts && a.parts.length > 0
+                  ? a.parts
+                  : parsedParts.length > 0
+                    ? parsedParts
+                    : [WHOLE_PART],
+              createdAt: now,
+            } satisfies AnimationInstance;
+          })
+          .filter((a): a is AnimationInstance => a !== null);
+
+        const legacyCode = m.animation?.code?.trim();
+        let animations = fromList;
+        if (animations.length === 0 && legacyCode) {
+          const parsedParts = parseAnimationPartNames(legacyCode);
+          animations = [
+            {
+              id: m.animation!.id || `${m.id}-anim`,
+              name: m.animation!.name || parseAnimationName(legacyCode) || `${m.name} animation`,
+              duration: m.animation!.duration ?? parseAnimationDuration(legacyCode) ?? 3,
+              code: legacyCode,
+              parts:
+                m.animation!.parts && m.animation!.parts.length > 0
+                  ? m.animation!.parts
+                  : parsedParts.length > 0
+                    ? parsedParts
+                    : [WHOLE_PART],
+              createdAt: now,
+            },
+          ];
         }
+
         return {
           id: m.id,
           name: m.name,
           code: m.code,
           createdAt: now,
-          animation,
+          animations,
         };
       });
 
@@ -1173,17 +1311,18 @@ export function useSceneProject() {
       const nextClips: Clip[] = [];
       let cursor = 0;
       for (const model of next) {
-        if (!model.animation) continue;
-        nextClips.push({
-          id: makeId(),
-          modelId: model.id,
-          animationId: model.animation.id,
-          part: WHOLE_PART,
-          label: model.animation.name,
-          start: cursor,
-          duration: model.animation.duration,
-        });
-        cursor += model.animation.duration;
+        for (const anim of model.animations) {
+          nextClips.push({
+            id: makeId(),
+            modelId: model.id,
+            animationId: anim.id,
+            part: WHOLE_PART,
+            label: anim.name,
+            start: cursor,
+            duration: anim.duration,
+          });
+          cursor += anim.duration;
+        }
       }
 
       setModels(next);
@@ -1192,8 +1331,9 @@ export function useSceneProject() {
       setSelectedLayer(null);
       setFocusedChildId(null);
       setTimelineFocusModelId(next[0].id);
+      setActiveAnimationId(next[0].animations[0]?.id ?? null);
       setClips(nextClips);
-      const animCount = next.filter((m) => m.animation).length;
+      const animCount = next.reduce((n, m) => n + m.animations.length, 0);
       setStatus({
         kind: 'info',
         text: `Loaded ${next.length} model${next.length === 1 ? '' : 's'}${
@@ -1210,11 +1350,14 @@ export function useSceneProject() {
     tunables: focusedTunables,
     allTunables: tunables,
     setParam,
+    updateAnimationModel,
     busy,
     status,
     mp4Job,
     models,
     activeModelId,
+    activeAnimationId,
+    setActiveAnimation: setActiveAnimationId,
     selectedModelIds,
     selectedLayer,
     focusedChildId,
@@ -1297,7 +1440,7 @@ function buildTimelineLanes(models: SceneModel[], clips: Clip[]): TimelineLane[]
   const modelIds = new Set<string>();
   for (const clip of clips) modelIds.add(clip.modelId);
   for (const model of models) {
-    if (model.animation) modelIds.add(model.id);
+    if (model.animations.length > 0) modelIds.add(model.id);
   }
   // If nothing yet, still show the first few models so the NLE isn't empty.
   if (modelIds.size === 0) {
