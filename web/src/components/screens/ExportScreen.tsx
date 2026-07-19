@@ -68,9 +68,20 @@ export interface ExportScreenProps {
   onUserCameraChange: (camera: CameraSpec) => void;
   /** Reset local models when the GitHub repo is unlinked. */
   onGitHubUnlink: () => void;
-  /** Apply models pulled from the linked GitHub repo. */
+  /** Apply models (and animation copies) pulled from the linked GitHub repo. */
   onGitHubPull: (
-    models: Array<{ id: string; name: string; code: string }>,
+    models: Array<{
+      id: string;
+      name: string;
+      code: string;
+      animation?: {
+        id: string;
+        name: string;
+        code: string;
+        duration?: number;
+        parts?: string[];
+      };
+    }>,
   ) => void;
 }
 
@@ -153,8 +164,21 @@ export function ExportScreen({
           id: m.id,
           name: m.name,
           code: m.code,
+          animation: m.animation?.code.trim()
+            ? {
+                id: m.animation.id,
+                name: m.animation.name,
+                code: m.animation.code,
+                duration: m.animation.duration,
+                parts: m.animation.parts,
+              }
+            : undefined,
         })),
     [models],
+  );
+  const githubAnimationCount = useMemo(
+    () => githubModels.filter((m) => m.animation).length,
+    [githubModels],
   );
   const canPushGithub = githubModels.length > 0;
 
@@ -329,9 +353,9 @@ export function ExportScreen({
             Export to GitHub
           </h2>
           <p className="m-0 text-[13px] leading-normal text-text-faint">
-            Save all models under <code className="text-text">models/</code> (and an empty{' '}
-            <code className="text-text">animations/</code> folder) using the selected code format.
-            Sign in with GitHub is required.
+            Save all models under <code className="text-text">models/</code> and animation
+            copies under <code className="text-text">animations/</code> using the selected
+            code format. Sign in with GitHub is required.
           </p>
           <RequireAuth
             fallback={
@@ -382,7 +406,13 @@ export function ExportScreen({
                     })
                   }
                 >
-                  {github.busy ? 'Committing…' : `Commit ${githubModels.length} model${githubModels.length === 1 ? '' : 's'}`}
+                  {github.busy
+                    ? 'Committing…'
+                    : `Commit ${githubModels.length} model${githubModels.length === 1 ? '' : 's'}${
+                        githubAnimationCount > 0
+                          ? ` + ${githubAnimationCount} animation${githubAnimationCount === 1 ? '' : 's'}`
+                          : ''
+                      }`}
                 </Button>
                 <Button
                   variant="secondary"

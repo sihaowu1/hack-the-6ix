@@ -1101,7 +1101,20 @@ export function useSceneProject() {
   }, []);
 
   const replaceFromRemote = useCallback(
-    (remote: Array<{ id: string; name: string; code: string }>) => {
+    (
+      remote: Array<{
+        id: string;
+        name: string;
+        code: string;
+        animation?: {
+          id: string;
+          name: string;
+          code: string;
+          duration?: number;
+          parts?: string[];
+        };
+      }>,
+    ) => {
       if (remote.length === 0) {
         resetToDefault();
         setStatus({
@@ -1110,22 +1123,65 @@ export function useSceneProject() {
         });
         return;
       }
-      const next: SceneModel[] = remote.map((m) => ({
-        id: m.id,
-        name: m.name,
-        code: m.code,
-        createdAt: Date.now(),
-      }));
+      const now = Date.now();
+      const next: SceneModel[] = remote.map((m) => {
+        const animCode = m.animation?.code?.trim();
+        let animation: AnimationInstance | undefined;
+        if (animCode) {
+          const parsedParts = parseAnimationPartNames(animCode);
+          animation = {
+            id: m.animation!.id || `${m.id}-anim`,
+            name: m.animation!.name || parseAnimationName(animCode) || `${m.name} animation`,
+            duration: m.animation!.duration ?? parseAnimationDuration(animCode) ?? 3,
+            code: animCode,
+            parts:
+              m.animation!.parts && m.animation!.parts.length > 0
+                ? m.animation!.parts
+                : parsedParts.length > 0
+                  ? parsedParts
+                  : [WHOLE_PART],
+            createdAt: now,
+          };
+        }
+        return {
+          id: m.id,
+          name: m.name,
+          code: m.code,
+          createdAt: now,
+          animation,
+        };
+      });
+
+      // Rebuild a simple timeline: one whole-model clip per animation, sequential.
+      const nextClips: Clip[] = [];
+      let cursor = 0;
+      for (const model of next) {
+        if (!model.animation) continue;
+        nextClips.push({
+          id: makeId(),
+          modelId: model.id,
+          animationId: model.animation.id,
+          part: WHOLE_PART,
+          label: model.animation.name,
+          start: cursor,
+          duration: model.animation.duration,
+        });
+        cursor += model.animation.duration;
+      }
+
       setModels(next);
       setActiveModelId(next[0].id);
       setSelectedModelIds([next[0].id]);
       setSelectedLayer(null);
       setFocusedChildId(null);
       setTimelineFocusModelId(next[0].id);
-      setClips([]);
+      setClips(nextClips);
+      const animCount = next.filter((m) => m.animation).length;
       setStatus({
         kind: 'info',
-        text: `Loaded ${next.length} model${next.length === 1 ? '' : 's'} from linked GitHub repo.`,
+        text: `Loaded ${next.length} model${next.length === 1 ? '' : 's'}${
+          animCount > 0 ? ` and ${animCount} animation${animCount === 1 ? '' : 's'}` : ''
+        } from linked GitHub repo.`,
       });
     },
     [resetToDefault],

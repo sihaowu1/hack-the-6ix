@@ -68,7 +68,35 @@ function modelsBody(req: Request): {
     if (!code.trim()) {
       throw new Error(`models[${index}].code is required`);
     }
-    return { id, name, code };
+    const rawAnim = (entry as { animation?: unknown }).animation;
+    let animation: GitHubModelInput['animation'];
+    if (rawAnim && typeof rawAnim === 'object') {
+      const anim = rawAnim as {
+        id?: unknown;
+        name?: unknown;
+        code?: unknown;
+        duration?: unknown;
+        parts?: unknown;
+      };
+      const animCode = String(anim.code ?? '');
+      if (animCode.trim()) {
+        const duration =
+          typeof anim.duration === 'number' && Number.isFinite(anim.duration) && anim.duration > 0
+            ? anim.duration
+            : undefined;
+        const parts = Array.isArray(anim.parts)
+          ? anim.parts.map((p) => String(p)).filter(Boolean)
+          : undefined;
+        animation = {
+          id: String(anim.id ?? '').trim() || `${id}-anim`,
+          name: String(anim.name ?? '').trim() || `${name} animation`,
+          code: animCode,
+          duration,
+          parts: parts && parts.length > 0 ? parts : undefined,
+        };
+      }
+    }
+    return { id, name, code, animation };
   });
   return {
     models,

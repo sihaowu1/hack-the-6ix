@@ -216,10 +216,20 @@ export interface GitHubCommitResult {
 
 export interface GitHubCreateResult extends GitHubLinkedRepo, GitHubCommitResult {}
 
+export interface GitHubAnimationPayload {
+  id: string;
+  name: string;
+  code: string;
+  duration?: number;
+  parts?: string[];
+}
+
 export interface GitHubModelPayload {
   id: string;
   name: string;
   code: string;
+  /** Full copy of the model's animated module when present. */
+  animation?: GitHubAnimationPayload;
 }
 
 export interface GitHubProjectPayload {

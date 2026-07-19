@@ -15,7 +15,18 @@ const MODELS_STORAGE_KEY = 'motionforge:models';
  */
 export function useGitHubStartupSync(options: {
   replaceFromRemote: (
-    models: Array<{ id: string; name: string; code: string }>,
+    models: Array<{
+      id: string;
+      name: string;
+      code: string;
+      animation?: {
+        id: string;
+        name: string;
+        code: string;
+        duration?: number;
+        parts?: string[];
+      };
+    }>,
   ) => void;
 }): void {
   const { isAuthenticated, isLoading, configured } = useAuth();

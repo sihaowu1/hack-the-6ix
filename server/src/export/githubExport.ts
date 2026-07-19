@@ -1,6 +1,15 @@
 import { Octokit } from '@octokit/rest';
+import {
+  parseAnimationDuration,
+  parseAnimationName,
+  parseAnimationPartNames,
+} from '@motionforge/shared';
 import type { ProjectFile } from './codeExport';
-import { parseModelFolder, type GitHubModelInput } from './githubProjectFiles';
+import {
+  parseModelFolder,
+  type GitHubAnimationInput,
+  type GitHubModelInput,
+} from './githubProjectFiles';
 
 export interface LinkedRepo {
   owner: string;
@@ -184,8 +193,8 @@ export function parseOwnerRepo(
 }
 
 /**
- * Pull scene modules from `models/<slug>/` in a linked repo.
- * Missing `models/` returns an empty list. Animations are ignored for now.
+ * Pull scene modules from `models/<slug>/` and matching animation copies from
+ * `animations/<slug>/` in a linked repo. Missing `models/` returns [].
  */
 export async function pullModelsFromRepo(options: {
   token: string;
@@ -222,10 +231,16 @@ export async function pullModelsFromRepo(options: {
     throw err;
   }
 
-  const modulePaths = tree
+  const blobPaths = tree
     .filter((entry) => entry.type === 'blob' && entry.path)
-    .map((entry) => entry.path as string)
-    .filter((path) => /^models\/[^/]+\/scene\.module\.js$/.test(path));
+    .map((entry) => entry.path as string);
+
+  const modulePaths = blobPaths.filter((path) => /^models\/[^/]+\/scene\.module\.js$/.test(path));
+  const animationBySlug = new Map<string, string>();
+  for (const path of blobPaths) {
+    const match = path.match(/^animations\/([^/]+)\/scene\.module\.js$/);
+    if (match) animationBySlug.set(match[1], path);
+  }
 
   const models: GitHubModelInput[] = [];
 
@@ -236,7 +251,25 @@ export async function pullModelsFromRepo(options: {
     const code = await fetchFileContent(octokit, owner, repo, modulePath, branch);
     if (!code.trim()) continue;
 
-    models.push({ id, name, code });
+    let animation: GitHubAnimationInput | undefined;
+    const animPath = animationBySlug.get(folder);
+    if (animPath) {
+      const animCode = await fetchFileContent(octokit, owner, repo, animPath, branch);
+      if (animCode.trim()) {
+        const duration = parseAnimationDuration(animCode) ?? 3;
+        const animName = parseAnimationName(animCode) ?? `${name} animation`;
+        const parts = parseAnimationPartNames(animCode);
+        animation = {
+          id: `${id}-anim`,
+          name: animName,
+          code: animCode,
+          duration,
+          parts: parts.length > 0 ? parts : undefined,
+        };
+      }
+    }
+
+    models.push({ id, name, code, animation });
   }
 
   models.sort((a, b) => a.name.localeCompare(b.name));
