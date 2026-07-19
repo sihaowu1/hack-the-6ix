@@ -35,8 +35,8 @@ web (editor + controls + viewport)
    ▼
 server/routes  ─▶  server/agents (orchestrator)
    │                    │
-   │                    ├─▶ server/ai (Claude + threejs-modelling / img2threejs /
-   │                    │        threejs-animation skills)
+   │                    ├─▶ server/ai (Claude + threejs-modelling /
+   │                    │        procedural-patterns / threejs-animation skills)
    │                    │        │ offline fallback ▶ server/agents/templateFallback (shared/sceneTemplate)
    │                    └─▶ server/remotion/renderer ─▶ remotion/ (bundle + render) ─▶ renders/*.mp4
    ▼
@@ -90,10 +90,10 @@ Every generated model follows the Three.js modelling contract (see
   re-serializing the whole module.
 
 Claude Skills that drive this: `skills/threejs-modelling/SKILL.md` (model generation/modification),
-`skills/img2threejs/SKILL.md` (reconstructs a model from an attached reference image via component
-decomposition, used instead of `threejs-modelling` when an image is present),
+`skills/procedural-patterns/SKILL.md` (geometry and material craft guidance),
 `skills/threejs-animation/SKILL.md` (one-shot timeline animations — singular video agent adds
-`ANIMATION` to a duplicate of the base model module). MP4 fps/duration/resolution come from the
+`ANIMATION` to a duplicate of the base model module). Reference images use an inline analysis
+addendum in `modelAgent` (not a separate skill). MP4 fps/duration/resolution come from the
 export UI (and config defaults), not an AI skill. Merges build one deterministic fused module
 (`shared/fuseModules`) on a shared ground plane — selectable and animatable like any other
 model. Child source is snapshotted into the merge (`children`); placement uses per-child

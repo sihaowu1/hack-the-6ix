@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { OBJExporter } from 'three/examples/jsm/exporters/OBJExporter.js';
 import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js';
-import { validateSceneModule, type SceneModule } from '@motionforge/shared';
+import { rewriteGeometryTypos, validateSceneModule, type SceneModule } from '@motionforge/shared';
 
 export type ModelFormat = 'glb' | 'obj' | 'stl';
 
@@ -11,10 +11,11 @@ export type ModelFormat = 'glb' | 'obj' | 'stl';
  * downloadable 3D model file. Runs entirely in the browser — no server needed.
  */
 export async function exportSceneAs(code: string, format: ModelFormat): Promise<void> {
-  const errors = validateSceneModule(code);
+  const normalized = rewriteGeometryTypos(code);
+  const errors = validateSceneModule(normalized);
   if (errors.length > 0) throw new Error(`Invalid scene module: ${errors.join('; ')}`);
 
-  const module = await loadModule(code);
+  const module = await loadModule(normalized);
   const scene = new THREE.Scene();
 
   // Build the scene exactly as the viewport does.

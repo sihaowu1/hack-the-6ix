@@ -1,4 +1,5 @@
 import { extractParamsBlock } from './tunables';
+import { findUnknownGeometries, rewriteGeometryTypos } from './threeGeometries';
 import type { SceneSpec } from './types';
 
 /**
@@ -10,6 +11,9 @@ import type { SceneSpec } from './types';
  * structure that was declared before it was written — the layers panel breaks
  * when a named part never reaches the `buildScene` return map, and there is no
  * way to catch that from the code alone.
+ *
+ * Prefer running `rewriteGeometryTypos` on the source first — known LLM
+ * misspellings (e.g. `CylinkerGeometry`) are corrected before these checks.
  */
 export function validateSceneModule(code: string, spec?: SceneSpec): string[] {
   const errors: string[] = [];
@@ -30,6 +34,14 @@ export function validateSceneModule(code: string, spec?: SceneSpec): string[] {
   }
   if (/\brequire\s*\(/.test(code)) {
     errors.push('the module must not use require()');
+  }
+
+  const unknown = findUnknownGeometries(rewriteGeometryTypos(code));
+  if (unknown.length > 0) {
+    errors.push(
+      `unknown Three.js geometry constructor(s): ${unknown.map((name) => `THREE.${name}`).join(', ')} ` +
+        '— use a real *Geometry name (e.g. CylinderGeometry, BoxGeometry)',
+    );
   }
 
   if (spec) errors.push(...checkAgainstSpec(code, spec));

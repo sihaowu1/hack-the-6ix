@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { validateSceneModule, type ReferenceImage, type SceneSpec } from '@motionforge/shared';
+import { rewriteGeometryTypos, validateSceneModule, type ReferenceImage, type SceneSpec } from '@motionforge/shared';
 import { config } from '../config';
 import { loadSkill } from '../ai/skills';
 import { extractFencedBlocks } from '../ai/extract';
@@ -126,13 +126,14 @@ export async function critiqueScene(
 
   // A correction that fails the contract is worse than the model we already
   // have, so fall back to accepting rather than shipping something broken.
-  const correctionErrors = validateSceneModule(js.code, request.spec);
+  const code = rewriteGeometryTypos(js.code);
+  const correctionErrors = validateSceneModule(code, request.spec);
   if (correctionErrors.length > 0) {
     trace('critiqueAgent.ts:critiqueScene', 'critique.rejected', { errors: correctionErrors });
     return { action: 'continue', reason: 'the proposed correction did not satisfy the module contract' };
   }
-  trace('critiqueAgent.ts:critiqueScene', 'critique.revised', { codeChars: js.code.length });
+  trace('critiqueAgent.ts:critiqueScene', 'critique.revised', { codeChars: code.length });
 
   const reason = text.split('```')[0].trim().slice(0, 300);
-  return { action: 'revise', code: js.code, reason: reason || 'corrected a visible defect' };
+  return { action: 'revise', code, reason: reason || 'corrected a visible defect' };
 }

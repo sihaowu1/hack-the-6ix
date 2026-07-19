@@ -1,6 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import {
   asSceneSpec,
+  normalizeSceneSpec,
+  rewriteGeometryTypos,
   validateSceneModule,
   validateSceneSpec,
   type ReferenceImage,
@@ -346,7 +348,7 @@ async function runSpecTurn(
 
     if (errors.length === 0) {
       messages.push({ role: 'assistant', content: content as Anthropic.MessageParam['content'] });
-      return asSceneSpec(parsed);
+      return normalizeSceneSpec(asSceneSpec(parsed));
     }
 
     messages.push({ role: 'assistant', content: content as Anthropic.MessageParam['content'] });
@@ -381,23 +383,24 @@ async function runCodeTurn(
     const { text, content } = await complete(client, messages, system);
     const blocks = extractFencedBlocks(text);
     const js = blocks.find((block) => JS_LANGS.has(block.lang));
-    errors = js
-      ? validateSceneModule(js.code, spec)
+    const code = js ? rewriteGeometryTypos(js.code) : undefined;
+    errors = code
+      ? validateSceneModule(code, spec)
       : ['the response did not include a ```javascript block'];
 
     trace('sceneAgent.ts:runCodeTurn', 'code.validated', {
       attempt: attempt + 1,
-      accepted: !!js && errors.length === 0,
+      accepted: !!code && errors.length === 0,
       errors,
       blockLangs: blocks.map((block) => block.lang),
-      code: js?.code ?? null,
+      code: code ?? null,
     });
 
     // The summary is presentation, not contract — a module that validates is
     // never rejected for arriving without one.
-    if (js && errors.length === 0) {
+    if (code && errors.length === 0) {
       const summary = blocks.find((block) => block.lang === 'summary')?.code.trim();
-      return { code: js.code, summary: summary || undefined };
+      return { code, summary: summary || undefined };
     }
 
     // Feed the validator's errors back for one corrective attempt. The full

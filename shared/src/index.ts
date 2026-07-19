@@ -2,6 +2,7 @@ export * from './types';
 export * from './tunables';
 export * from './validate';
 export * from './validateSpec';
+export * from './threeGeometries';
 export * from './sceneTemplate';
 export * from './layers';
 export * from './animation';

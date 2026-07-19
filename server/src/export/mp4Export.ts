@@ -1,4 +1,4 @@
-import { validateSceneModule, type RenderSettings } from '@motionforge/shared';
+import { rewriteGeometryTypos, validateSceneModule, type RenderSettings } from '@motionforge/shared';
 import { config } from '../config';
 import { createJob, type Job } from '../utils/jobs';
 import { renderSceneToMp4 } from '../remotion/renderer';
@@ -8,7 +8,8 @@ import { renderSceneToMp4 } from '../remotion/renderer';
  * defaults, then runs the Remotion render as a background job the client polls.
  */
 export function startMp4Export(code: string, overrides: Partial<RenderSettings>): Job {
-  const errors = validateSceneModule(code);
+  const normalized = rewriteGeometryTypos(code);
+  const errors = validateSceneModule(normalized);
   if (errors.length > 0) {
     throw new Error(`invalid scene module: ${errors.join('; ')}`);
   }
@@ -23,7 +24,7 @@ export function startMp4Export(code: string, overrides: Partial<RenderSettings>)
     };
 
     update({ progress: 0.05, message: 'Bundling Remotion project' });
-    const { fileName } = await renderSceneToMp4(code, settings, ({ stage, progress }) => {
+    const { fileName } = await renderSceneToMp4(normalized, settings, ({ stage, progress }) => {
       update({
         progress,
         message: stage === 'bundle' ? 'Bundling Remotion project' : 'Rendering frames',

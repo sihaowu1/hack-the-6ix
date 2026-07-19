@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { assertAnimationPreservesGeometry, validateSceneModule } from '@motionforge/shared';
+import { assertAnimationPreservesGeometry, rewriteGeometryTypos, validateSceneModule } from '@motionforge/shared';
 import { config } from '../config';
 import { loadSkill } from '../ai/skills';
 import { extractFencedBlocks } from '../ai/extract';
@@ -97,12 +97,13 @@ async function completeWithRetry(
       .join('\n');
     const blocks = extractFencedBlocks(text);
     const js = blocks.find((block) => JS_LANGS.has(block.lang));
-    errors = js ? validateSceneModule(js.code) : ['the response did not include a ```javascript block'];
-    if (js && errors.length === 0) {
-      errors = assertAnimationPreservesGeometry(baselineCode, js.code);
+    const code = js ? rewriteGeometryTypos(js.code) : undefined;
+    errors = code ? validateSceneModule(code) : ['the response did not include a ```javascript block'];
+    if (code && errors.length === 0) {
+      errors = assertAnimationPreservesGeometry(baselineCode, code);
     }
-    if (js && errors.length === 0) {
-      return { code: js.code };
+    if (code && errors.length === 0) {
+      return { code };
     }
     messages.push({ role: 'assistant', content: response.content as Anthropic.MessageParam['content'] });
     messages.push({

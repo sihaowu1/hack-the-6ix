@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { validateSceneModule, type CameraSpec, type SceneModule } from '@motionforge/shared';
+import { rewriteGeometryTypos, validateSceneModule, type CameraSpec, type SceneModule } from '@motionforge/shared';
 import { applyTrackOverlays, type TrackOverlay } from './trackOverlay';
 
 const gltfLoader = new GLTFLoader();
@@ -240,14 +240,18 @@ export class SceneRuntime {
       return;
     }
 
-    for (const entry of scenes) {
+    const normalized = scenes.map((entry) =>
+      entry.assetUrl ? entry : { ...entry, code: rewriteGeometryTypos(entry.code) },
+    );
+
+    for (const entry of normalized) {
       if (entry.assetUrl) continue;
       const errors = validateSceneModule(entry.code);
       if (errors.length > 0) throw new Error(`${entry.id}: ${errors.join('; ')}`);
     }
 
     const loaded = await Promise.all(
-      scenes.map(async (entry) => ({
+      normalized.map(async (entry) => ({
         id: entry.id,
         module: entry.assetUrl ? createImportedModule(entry.assetUrl) : await loadSceneModule(entry.code),
       })),

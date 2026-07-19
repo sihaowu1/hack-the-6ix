@@ -1,3 +1,4 @@
+import { isAllowedPrimitive, normalizePrimitive } from './threeGeometries';
 import type { SceneSpec, SpecComponent } from './types';
 
 /**
@@ -118,14 +119,20 @@ function checkComponents(components: unknown[]): string[] {
     }
     if (typeof component.primitive !== 'string' || !component.primitive.trim()) {
       errors.push(`${where} needs a non-empty string \`primitive\``);
+    } else if (!isAllowedPrimitive(component.primitive)) {
+      errors.push(
+        `${where} has unknown primitive "${component.primitive}" — ` +
+          'use a real Three.js *Geometry name (e.g. CylinderGeometry, BoxGeometry)',
+      );
     }
     if (!isNumberArray(component.dims) || component.dims.length === 0) {
       errors.push(`${where} needs \`dims\` as a non-empty array of numbers`);
-    } else if (typeof component.primitive === 'string') {
-      const allowed = DIMS_ARITY[component.primitive];
+    } else if (typeof component.primitive === 'string' && isAllowedPrimitive(component.primitive)) {
+      const primitive = normalizePrimitive(component.primitive);
+      const allowed = DIMS_ARITY[primitive];
       if (allowed && !allowed.includes(component.dims.length)) {
         errors.push(
-          `${where} is a ${component.primitive} with ${component.dims.length} \`dims\`, ` +
+          `${where} is a ${primitive} with ${component.dims.length} \`dims\`, ` +
             `but that geometry takes ${allowed.join(' or ')}`,
         );
       }
@@ -297,4 +304,15 @@ function isVec3(value: unknown): value is [number, number, number] {
 /** Narrow a validated spec. Only sound after `validateSceneSpec` returns empty. */
 export function asSceneSpec(spec: unknown): SceneSpec {
   return spec as SceneSpec;
+}
+
+/** Fix known primitive typos so turn-2 codegen does not copy misspellings. */
+export function normalizeSceneSpec(spec: SceneSpec): SceneSpec {
+  return {
+    ...spec,
+    components: spec.components.map((component) => ({
+      ...component,
+      primitive: normalizePrimitive(component.primitive),
+    })),
+  };
 }
