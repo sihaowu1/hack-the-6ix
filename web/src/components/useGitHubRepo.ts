@@ -161,7 +161,14 @@ export function useGitHubRepo(options: GitHubRepoOptions = {}) {
         setPullStatus(
           result.models.length === 0
             ? 'Linked repo has no models yet.'
-            : `Loaded ${result.models.length} model${result.models.length === 1 ? '' : 's'} from GitHub.`,
+            : (() => {
+                const animCount = result.models.filter((m) => m.animation?.code.trim()).length;
+                return `Loaded ${result.models.length} model${result.models.length === 1 ? '' : 's'}${
+                  animCount > 0
+                    ? ` and ${animCount} animation${animCount === 1 ? '' : 's'}`
+                    : ''
+                } from GitHub.`;
+              })(),
         );
         return result;
       } catch (err) {

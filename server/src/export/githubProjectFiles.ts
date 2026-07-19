@@ -2,22 +2,36 @@ import { slugify } from '../utils/fsx';
 import { packModelFiles, type CodeExportFormat, type ProjectFile } from './codeExport';
 import { reactPackageJson } from './exportTemplates';
 
+/** Optional animated duplicate of a model's base module (full code copy). */
+export interface GitHubAnimationInput {
+  id: string;
+  name: string;
+  code: string;
+  duration?: number;
+  parts?: string[];
+}
+
 export interface GitHubModelInput {
   id: string;
   name: string;
   code: string;
+  /** When set, a full copy of the animated module is written under `animations/<slug>/`. */
+  animation?: GitHubAnimationInput;
 }
 
 /**
- * Multi-model GitHub layout (format wrappers per model folder):
+ * Multi-model GitHub layout (format wrappers per model/animation folder):
  *
  *   models/<slug>/scene.module.js
  *   models/<slug>/…format files…
- *   animations/.gitkeep
+ *   animations/<slug>/scene.module.js   (copy of the animated module, same slug)
+ *   animations/<slug>/…format files…
  *   package.json                     (react only, repo root)
  *   README.md
  *
  * Slug = sanitized name + model id so paths stay unique and round-trip on pull.
+ * Animations reuse the model slug so pull can reattach them. Empty `animations/`
+ * keeps a `.gitkeep` when no model has an animation yet.
  */
 export function buildGitHubProjectFiles(options: {
   models: GitHubModelInput[];
@@ -32,6 +46,7 @@ export function buildGitHubProjectFiles(options: {
   const title = options.title?.trim() || 'Zendai project';
   const format = options.format ?? 'standalone';
   const files: ProjectFile[] = [];
+  let animationCount = 0;
 
   for (const model of models) {
     const slug = modelFolderSlug(model.name, model.id);
@@ -43,9 +58,26 @@ export function buildGitHubProjectFiles(options: {
     for (const file of packed) {
       files.push({ path: `models/${slug}/${file.path}`, content: file.content });
     }
+
+    const anim = model.animation;
+    if (anim?.code.trim()) {
+      animationCount += 1;
+      const animTitle = anim.name.trim() || `${model.name} animation`;
+      // Full copy of the animated module — not a live link to models/.
+      const animPacked = packModelFiles({
+        code: anim.code,
+        format,
+        title: animTitle,
+      });
+      for (const file of animPacked) {
+        files.push({ path: `animations/${slug}/${file.path}`, content: file.content });
+      }
+    }
   }
 
-  files.push({ path: 'animations/.gitkeep', content: '' });
+  if (animationCount === 0) {
+    files.push({ path: 'animations/.gitkeep', content: '' });
+  }
   if (format === 'react') {
     files.push({ path: 'package.json', content: reactPackageJson() });
   }
@@ -82,16 +114,20 @@ function githubProjectReadme(
   const list = models
     .map((m) => {
       const slug = modelFolderSlug(m.name, m.id);
-      return `- \`models/${slug}/\` — ${m.name}`;
+      const animNote =
+        m.animation?.code.trim()
+          ? ` (animation copy in \`animations/${slug}/\`)`
+          : '';
+      return `- \`models/${slug}/\` — ${m.name}${animNote}`;
     })
     .join('\n');
 
   const formatExtra =
     format === 'standalone'
-      ? 'Each model folder includes `index.html` + `viewer.js`. Serve a folder over HTTP (`npx serve models/<slug>`).'
+      ? 'Each model/animation folder includes `index.html` + `viewer.js`. Serve a folder over HTTP (`npx serve models/<slug>`).'
       : format === 'react'
-        ? 'Each model folder includes `SceneCanvas.tsx`. Install peers from the root `package.json` (`three`, `react`, `react-dom`).'
-        : 'Each model folder is a raw `scene.module.js`. Hosts inject `THREE`; modules must not `import`/`require`/`fetch`.';
+        ? 'Each model/animation folder includes `SceneCanvas.tsx`. Install peers from the root `package.json` (`three`, `react`, `react-dom`).'
+        : 'Each model/animation folder is a raw `scene.module.js`. Hosts inject `THREE`; modules must not `import`/`require`/`fetch`.';
 
   return `# ${title}
 
@@ -104,7 +140,7 @@ ${formatExtra}
 ## Layout
 
 - \`models/\` — one folder per model (\`scene.module.js\` plus format wrappers)
-- \`animations/\` — reserved for animation scripts (empty for now)
+- \`animations/\` — full copies of each model's animated module (same slug as the model)
 
 ## Models
 
@@ -113,7 +149,7 @@ ${list}
 ## Scene module contract
 
 Each \`scene.module.js\` exports \`PARAMS\`, optional \`CAMERA\`, \`buildScene\`, and
-\`updateScene\`.
+\`updateScene\`. Animation copies also export \`ANIMATION\`.
 
 ## Tweak it
 
