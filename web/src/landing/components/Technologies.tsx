@@ -11,12 +11,13 @@ const TECHS = [
     ),
   },
   {
-    name: "WebGL",
+    name: "Claude AI",
     glyph: (
       <svg viewBox="0 0 24 24" className="h-8 w-8" fill="none" stroke="currentColor" strokeWidth="1.4">
         <circle cx="12" cy="12" r="8" />
-        <ellipse cx="12" cy="12" rx="8" ry="3.5" />
-        <path d="M12 4 V20" />
+        <path d="M8 10 Q12 6 16 10" strokeLinecap="round" />
+        <path d="M8 14 Q12 18 16 14" strokeLinecap="round" />
+        <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
       </svg>
     ),
   },
@@ -32,11 +33,12 @@ const TECHS = [
     ),
   },
   {
-    name: "Remotion",
+    name: "Blender",
     glyph: (
       <svg viewBox="0 0 24 24" className="h-8 w-8" fill="none" stroke="currentColor" strokeWidth="1.4">
-        <rect x="3" y="5" width="18" height="14" rx="2" />
-        <path d="M10 9 L15 12 L10 15 Z" fill="currentColor" stroke="none" />
+        <path d="M12 4 L4 12 L12 20 L20 12 Z" strokeLinejoin="round" />
+        <circle cx="12" cy="12" r="3" />
+        <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
       </svg>
     ),
   },

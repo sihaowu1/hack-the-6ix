@@ -31,9 +31,6 @@ export default function Hero() {
     <section id="top" className="relative pt-32 pb-24 lg:pt-40 lg:pb-32">
       <div className="mx-auto max-w-[1400px] px-6 lg:px-10">
         {/* Eyebrow */}
-        <div className="flex items-center gap-2 mb-8 animate-fade-up">
-          <span className="font-mono-label text-white">AI-Powered 3D Studio</span>
-        </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-16 items-center">
           {/* Editorial stack */}
@@ -54,9 +51,8 @@ export default function Hero() {
               </span>
             </h1>
             <p className="mt-6 max-w-md text-base lg:text-lg leading-relaxed text-slate-400">
-              No meshes. No black-box AI assets. Every scene is pure Three.js
-              code you can read, edit, tune with sliders, and export as .glb,
-              .obj, or .stl for any pipeline.
+              Describe what you want, get a fully editable 3D scene back.
+              Every result is real code you can tweak, remix, and make your own.
             </p>
 
             <div className="mt-9 flex flex-wrap items-center gap-3">
@@ -81,7 +77,7 @@ export default function Hero() {
               <span className="h-3 w-px bg-white/20" />
               <span>WebGL</span>
               <span className="h-3 w-px bg-white/20" />
-              <span className="text-royal-blue">Remotion</span>
+              <span className="text-royal-blue">Blender</span>
             </div>
           </div>
 
