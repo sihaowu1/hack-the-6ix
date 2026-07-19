@@ -2,7 +2,7 @@
 
 <img src="assets/logo.png" width="240" height="240">
 
-AI-powered 3D generation from a single prompt.
+Reiterate. Don't Regenerate.
 
 [![GitHub stars](https://img.shields.io/github/stars/sihaowu1/zendai?style=social)](https://github.com/sihaowu1/zendai)
 [![GitHub forks](https://img.shields.io/github/forks/sihaowu1/zendai?style=social)](https://github.com/sihaowu1/zendai/network/members)
@@ -15,7 +15,7 @@ AI-powered 3D generation from a single prompt.
 
 Zendai turns natural language prompts (or reference photos) into fully editable Three.js code. Component-based, tunable, and running live in the browser. Every result is real code you can tweak, remix, animate, and export.
 
-[View the Devpost](https://devpost.com)
+[View the Devpost](https://devpost.com/software/zendai)
 
 ## Key Features
 
