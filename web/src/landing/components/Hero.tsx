@@ -190,7 +190,7 @@ function ProductMockup({ typed }: { typed: string }) {
           <div className="bg-[rgba(255,255,255,0.08)] hover:bg-[#4da3ff] transition-colors cursor-col-resize" />
 
           {/* 3D Viewport */}
-          <div className="relative bg-[#0d0d0f] overflow-hidden" style={{ minHeight: 280 }}>
+          <div className="relative bg-[#0d0d0f] overflow-hidden aspect-video">
             <ViewportGrid />
             <Viewport3D scale={sliderValues.headSize / 72} />
 
