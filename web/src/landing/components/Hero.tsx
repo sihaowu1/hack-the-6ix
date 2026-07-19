@@ -92,7 +92,7 @@ export default function Hero() {
 }
 
 function ProductMockup({ typed }: { typed: string }) {
-  const [activeTab, setActiveTab] = useState<'Model' | 'Video' | 'Export'>('Model');
+  const [activeTab, setActiveTab] = useState<'Model' | 'Animation' | 'Export'>('Model');
   const [sliderValues, setSliderValues] = useState({ headSize: 72, armLength: 55, legLength: 65, roughness: 35 });
   const [activeSlider, setActiveSlider] = useState<string | null>(null);
 
@@ -109,7 +109,7 @@ function ProductMockup({ typed }: { typed: string }) {
         <div className="flex items-center gap-4 border-b border-[rgba(255,255,255,0.08)] bg-[#151517] px-3 py-2">
           <span className="text-[11px] font-semibold text-[#f4f4f5] tracking-wide">zendai</span>
           <nav className="flex gap-0.5">
-            {(['Model', 'Video', 'Export'] as const).map((tab) => (
+            {(['Model', 'Animation', 'Export'] as const).map((tab) => (
               <button
                 key={tab}
                 type="button"

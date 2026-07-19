@@ -15,7 +15,7 @@ import { useGitHubStartupSync } from '../useGitHubStartupSync';
  * Studio router shell (mounted under `/*` from `main.tsx`).
  *
  * The marketing landing lives at `/` (`web/src/landing/Home.jsx`). This shell owns
- * `/model`, `/video`, and `/export`. `useSceneProject` lives here so both
+ * `/model`, `/animation`, and `/export`. `useSceneProject` lives here so both
  * screens share one state instance — per SPEC.md Issue 4.
  *
  * Auth is optional: studio routes stay public. Sign-in unlocks GitHub-linked
@@ -31,8 +31,9 @@ export function App() {
       <div className="flex min-h-0 flex-1 flex-col">
         <Routes>
           <Route path="/model" element={<ModelGenerationScreen project={project} />} />
+          <Route path="/video" element={<Navigate to="/animation" replace />} />
           <Route
-            path="/video"
+            path="/animation"
             element={
               <VideoGenerationScreen
                 models={project.models}
@@ -80,7 +81,7 @@ export function App() {
                     status={project.status}
                     onGenerate={project.animate}
                     onModify={project.modifyAnimation}
-                    title="Video chat"
+                    title="Animation chat"
                     allowImageAttachment={false}
                     generateLabel="Animate"
                     modifyLabel="Modify"
@@ -145,8 +146,8 @@ function TopNav() {
         <NavLink to="/model" className={navLinkClassName}>
           Model
         </NavLink>
-        <NavLink to="/video" className={navLinkClassName}>
-          Video
+        <NavLink to="/animation" className={navLinkClassName}>
+          Animation
         </NavLink>
         <NavLink to="/export" className={navLinkClassName}>
           Export
