@@ -1,5 +1,6 @@
 import React from "react";
 import { Code2, PencilRuler, MonitorPlay, FileCode2, ArrowUpRight } from "lucide-react";
+import SamuraiScene from "./SamuraiBackground";
 
 const FEATURES = [
   {
@@ -30,8 +31,13 @@ const FEATURES = [
 
 export default function Features() {
   return (
-    <section id="features" className="border-t hairline border-white/10">
-      <div className="mx-auto max-w-[1400px] px-6 lg:px-10 py-24 lg:py-32">
+    <section id="features" className="relative border-t hairline border-white/10 overflow-hidden">
+      {/* Samurai 3D scene — behind everything, right-aligned, oversized to cut off at bottom */}
+      <div className="absolute top-[5%] right-[-12%] w-[70%] h-[130%] hidden lg:block pointer-events-none">
+        <SamuraiScene />
+      </div>
+
+      <div className="relative z-10 mx-auto max-w-[1400px] px-6 lg:px-10 py-24 lg:py-32">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 mb-16">
           <div className="lg:col-span-4">
             <span className="font-mono-label"><span className="text-royal-blue">02</span> <span className="text-slate-400">/ Features</span></span>
