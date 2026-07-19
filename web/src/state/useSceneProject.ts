@@ -674,9 +674,26 @@ export function useSceneProject() {
 
   const setParam = useCallback(
     (name: string, value: number | boolean | string) => {
-      setCode((current) => patchParam(current, name, value));
+      // Patch the frozen base and mirror into the animation duplicate so Video
+      // timeline playback (and any other consumer of animation.code) stays in
+      // sync with Model-screen sliders.
+      setModels((current) =>
+        current.map((m) => {
+          if (m.id !== activeModelId) return m;
+          const nextCode = patchParam(m.code, name, value);
+          if (!m.animation) return { ...m, code: nextCode };
+          return {
+            ...m,
+            code: nextCode,
+            animation: {
+              ...m.animation,
+              code: patchParam(m.animation.code, name, value),
+            },
+          };
+        }),
+      );
     },
-    [setCode],
+    [activeModelId],
   );
 
   const setActiveModel = useCallback((id: string) => {
