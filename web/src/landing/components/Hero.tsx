@@ -32,13 +32,7 @@ export default function Hero() {
       <div className="mx-auto max-w-[1400px] px-6 lg:px-10">
         {/* Eyebrow */}
         <div className="flex items-center gap-2 mb-8 animate-fade-up">
-          <span className="relative flex h-2 w-2">
-            <span className="absolute inline-flex h-full w-full rounded-full bg-royal-blue opacity-50 animate-ping" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-royal-blue" />
-          </span>
-          <span className="font-mono-label text-slate-400">v1.0</span>
-          <span className="h-px w-8 bg-royal-blue/40" />
-          <span className="font-mono-label text-white">Code-First 3D Engine</span>
+          <span className="font-mono-label text-white">AI-Powered 3D Studio</span>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-16 items-center">
@@ -140,19 +134,17 @@ function ProductMockup({ typed }: { typed: string }) {
           </button>
         </div>
 
-        {/* Main body: sidebar + viewport */}
-        <div className="grid grid-cols-[170px_1px_1fr]">
+        {/* Main body: sidebar + viewport, forced 16:9 */}
+        <div className="relative aspect-video grid grid-cols-[170px_1px_1fr]">
           {/* Left sidebar */}
-          <div className="flex flex-col bg-[#151517]">
+          <div className="flex flex-col bg-[#151517] overflow-hidden">
             {/* Chat section */}
-            <div className="p-2.5 flex flex-col gap-2" style={{ height: 130 }}>
+            <div className="p-2.5 flex flex-col gap-2 flex-none">
               <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.11em] text-[#74757d]">Model chat</span>
-              <div className="flex-1 flex flex-col gap-1 overflow-hidden">
-                <p className="m-0 text-[9px] leading-snug text-[#74757d]">Generate builds a new model. Modify edits the current one.</p>
-              </div>
+              <p className="m-0 text-[9px] leading-snug text-[#74757d]">Generate builds a new model. Modify edits the current one.</p>
               {/* Composer */}
               <div className="rounded-lg border border-[rgba(255,255,255,0.08)] bg-[#0d0d0f] overflow-hidden">
-                <div className="px-2 py-1.5 text-[10px] text-[#f4f4f5] leading-tight min-h-[28px]">
+                <div className="px-2 py-1.5 text-[10px] text-[#f4f4f5] leading-tight min-h-[24px]">
                   <span>{typed.slice(0, 36)}</span>
                   <span className="inline-block w-px h-3 bg-white/80 align-middle ml-0.5 animate-pulse" />
                 </div>
@@ -164,19 +156,17 @@ function ProductMockup({ typed }: { typed: string }) {
             </div>
 
             {/* Resize handle */}
-            <div className="h-px bg-[rgba(255,255,255,0.08)]" />
+            <div className="h-px bg-[rgba(255,255,255,0.08)] flex-none" />
 
             {/* Models & Layers */}
-            <div className="p-2.5 flex-1 flex flex-col gap-2">
+            <div className="p-2.5 flex-1 flex flex-col gap-2 overflow-hidden">
               <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.11em] text-[#74757d]">Models & Layers</span>
               <div className="space-y-1.5">
-                {/* Active model */}
                 <div className="rounded-lg border border-[rgba(255,255,255,0.08)] bg-[#222226] px-2 py-1.5 flex items-center gap-1.5">
                   <Box className="h-3 w-3 text-[#4da3ff] shrink-0" />
                   <span className="text-[10px] text-[#4da3ff] font-medium truncate flex-1">Component figure</span>
                   <span className="text-[9px] text-[#74757d] border border-[rgba(255,255,255,0.08)] rounded-full px-1">6</span>
                 </div>
-                {/* Layers (expanded) */}
                 <div className="pl-5 space-y-0.5">
                   {['head', 'torso', 'leftArm', 'rightArm', 'leftLeg', 'rightLeg'].map((layer) => (
                     <div key={layer} className="text-[9px] font-mono text-[#a8a8b0] py-0.5 truncate">{layer}</div>
@@ -190,7 +180,7 @@ function ProductMockup({ typed }: { typed: string }) {
           <div className="bg-[rgba(255,255,255,0.08)] hover:bg-[#4da3ff] transition-colors cursor-col-resize" />
 
           {/* 3D Viewport */}
-          <div className="relative bg-[#0d0d0f] overflow-hidden aspect-video">
+          <div className="relative bg-[#0d0d0f] overflow-hidden">
             <ViewportGrid />
             <Viewport3D scale={sliderValues.headSize / 72} />
 
