@@ -29,10 +29,6 @@ export default function Nav() {
         <div className="flex h-16 items-center justify-between">
           <a href="#top" className="flex items-center gap-2.5 group">
             <Logo size={120} />
-            <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full rounded-full bg-royal-blue opacity-60 animate-ping" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-royal-blue" />
-            </span>
           </a>
 
           <nav className="hidden md:flex items-center gap-8">

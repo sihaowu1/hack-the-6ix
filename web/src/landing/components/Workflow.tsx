@@ -5,7 +5,7 @@ const STEPS = [
   {
     icon: PenLine,
     label: "Describe",
-    description: "Type a prompt or snap a reference photo. The AI writes Three.js code, not a mesh blob.",
+    description: "Type a prompt or upload a reference photo. The AI decomposes the subject and writes real Three.js code.",
   },
   {
     icon: Wand2,
@@ -15,12 +15,12 @@ const STEPS = [
   {
     icon: SlidersHorizontal,
     label: "Tune",
-    description: "Drag sliders for size, color, and material. Every change patches the code directly — no regeneration.",
+    description: "Drag sliders for size, color, and material. Add custom sliders on the fly. Every change patches the code directly.",
   },
   {
     icon: Download,
     label: "Export",
-    description: "Download as .glb, .obj, or .stl for any 3D pipeline, or render to MP4 with Remotion.",
+    description: "Download as .glb, .obj, or .stl for any 3D pipeline, or open directly in Blender.",
   },
 ];
 
