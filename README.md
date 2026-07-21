@@ -15,7 +15,8 @@ Reiterate. Don't Regenerate.
 
 Zendai turns natural language prompts (or reference photos) into fully editable Three.js code. Component-based, tunable, and running live in the browser. Every result is real code you can tweak, remix, animate, and export.
 
-[View the Devpost](https://devpost.com/software/zendai) [See Demo Video](https://www.youtube.com/watch?v=NokK4S2DQxU)
+[View the Devpost](https://devpost.com/software/zendai)
+[See Demo Video](https://www.youtube.com/watch?v=NokK4S2DQxU)
 
 ## Key Features
 
